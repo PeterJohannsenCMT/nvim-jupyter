@@ -1,114 +1,75 @@
--- lua/health/jupyter.lua
-local health = vim.health or require("health")
 local M = {}
 
+-- Compatibility shims across Neovim versions
+local H = vim.health or {}
+local start = H.start or H.report_start or function(_) end
+local ok    = H.ok    or H.report_ok    or function(_) end
+local warn  = H.warn  or H.report_warn  or function(_) end
+local err   = H.error or H.report_error or function(_) end
+
+-- Run a command; prefer vim.system (0.10+), fallback to system()
+local function run(cmd_argv)
+  if vim.system then
+    local res = vim.system(cmd_argv, { text = true }):wait()
+    return res.code or 1, (res.stdout or ""), (res.stderr or "")
+  else
+    -- naive fallback; quote carefully if you modify
+    local cmd = table.concat(cmd_argv, " ")
+    local out = vim.fn.system(cmd)
+    return vim.v.shell_error, out or "", ""
+  end
+end
+
+local function find_bridge()
+  -- mirrors kernel.lua logic, simplified
+  local src = debug.getinfo(1, "S").source
+  if src:sub(1,1) == "@" then src = src:sub(2) end
+  local base = src:match("^(.*)/lua/health/.*$") or vim.fn.fnamemodify(src, ":h:h:h")
+  local p = base .. "/python/bridge.py"
+  if vim.loop.fs_stat(p) then return p end
+  for _, rtp in ipairs(vim.api.nvim_list_runtime_paths()) do
+    local q = rtp .. "/python/bridge.py"
+    if vim.loop.fs_stat(q) then return q end
+  end
+  return nil
+end
+
 function M.check()
-  health.start("nvim-jupyter")
-  
-  -- Check if main module can be loaded
-  local main_ok, main_module = pcall(require, "jupyter")
-  if main_ok then 
-    health.ok("Main module loaded successfully")
-  else 
-    health.error("Failed to load main module: " .. tostring(main_module))
-    return
-  end
-  
-  -- Check if config module can be loaded
-  local cfg_ok, cfg = pcall(require, "jupyter.config")
-  if cfg_ok then 
-    health.ok("Configuration module loaded")
-  else 
-    health.warn("Configuration module not found, using defaults")
-    cfg = { python_cmd = "python3", kernel_name = "python3" }
-  end
-  
-  -- Check Python and jupyter-client availability
-  local python = cfg.python_cmd or "python3"
-  health.info("Using Python command: " .. python)
-  
-  -- Test Python availability
-  local python_test_cmd = string.format('%s -c "import sys; print(sys.version.split()[0])"', python)
-  local python_out = vim.fn.system(python_test_cmd)
-  if vim.v.shell_error == 0 then
-    health.ok("Python available: " .. python_out:gsub("%s+$", ""))
+  start("nvim-jupyter")
+
+  -- Config presence
+  local cfg = {}
+  local ok_mod, mod = pcall(require, "jupyter")
+  if ok_mod and type(mod.get_config) == "function" then
+    cfg = mod.get_config()
+    ok("config loaded")
   else
-    health.error("Python not available at: " .. python)
-    return
+    warn("config not loaded via require('jupyter').setup(...) (using defaults)")
   end
-  
-  -- Test jupyter-client availability
-  local jupyter_test_cmd = string.format('%s -c "import jupyter_client; print(jupyter_client.__version__)"', python)
-  local jupyter_out = vim.fn.system(jupyter_test_cmd)
-  if vim.v.shell_error == 0 then
-    health.ok("jupyter-client available: " .. jupyter_out:gsub("%s+$", ""))
+
+  -- Python & jupyter_client
+  local py = (cfg.python_cmd and tostring(cfg.python_cmd)) or "python3"
+  local code, out, errout = run({ py, "-c", "import sys, jupyter_client; print(sys.version.split()[0]); print(jupyter_client.__version__)" })
+  if code == 0 then
+    local lines = {}
+    for s in (out or ""):gmatch("[^\r\n]+") do table.insert(lines, s) end
+    ok(("python ok: %s; jupyter_client: %s"):format(lines[1] or "?", lines[2] or "?"))
   else
-    health.error("jupyter-client not available. Install with: pip install jupyter-client")
+    err(("python_cmd failed (%s): %s"):format(py, (errout ~= "" and errout or out):gsub("%s+$","")))
   end
-  
-  -- Check bridge script availability
-  local kernel_module_ok, kernel_module = pcall(require, "jupyter.kernel")
-  if kernel_module_ok then
-    health.ok("Kernel module loaded successfully")
-    
-    -- Try to find bridge script (using the same logic as kernel.lua)
-    local src = debug.getinfo(1, "S").source
-    if src:sub(1,1) == "@" then src = src:sub(2) end
-    local base = src:match("^(.*)/lua/health/.*$") or vim.fn.fnamemodify(src, ":h:h")
-    local bridge_path = base and (base .. "/python/bridge.py")
-    
-    if bridge_path and vim.loop.fs_stat(bridge_path) then
-      health.ok("Bridge script found: " .. bridge_path)
-    else
-      health.warn("Bridge script not found at expected location")
-      -- Check runtime paths
-      local found_bridge = false
-      for _, rtp in ipairs(vim.api.nvim_list_runtime_paths()) do
-        local p = rtp .. "/python/bridge.py"
-        if vim.loop.fs_stat(p) then
-          health.ok("Bridge script found in runtimepath: " .. p)
-          found_bridge = true
-          break
-        end
-      end
-      if not found_bridge then
-        health.error("Bridge script not found in any runtime path")
-      end
-    end
+
+  -- bridge.py discoverability
+  local bridge = find_bridge()
+  if bridge then
+    ok("bridge.py found at " .. bridge)
   else
-    health.error("Kernel module failed to load: " .. tostring(kernel_module))
+    warn("bridge.py not found on runtimepath; set require('jupyter').setup{ bridge_script = '/abs/path/bridge.py' }")
   end
-  
-  -- Check if kernel is currently running
-  if kernel_module_ok and kernel_module.is_running then
-    if kernel_module.is_running() then
-      health.info("Kernel is currently running")
-    else
-      health.info("Kernel is not running (use :JupyterStart to start)")
-    end
-  end
-  
-  -- Check other utility modules
-  local utils_ok = pcall(require, "jupyter.utils")
-  if utils_ok then
-    health.ok("Utils module loaded")
-  else
-    health.warn("Utils module failed to load")
-  end
-  
-  local ui_ok = pcall(require, "jupyter.ui")
-  if ui_ok then
-    health.ok("UI module loaded")
-  else
-    health.warn("UI module failed to load")
-  end
-  
-  local transport_ok = pcall(require, "jupyter.transport")
-  if transport_ok then
-    health.ok("Transport module loaded")
-  else
-    health.warn("Transport module failed to load")
-  end
+
+  -- Optional: baleia
+  local ok_baleia = pcall(require, "baleia")
+  if ok_baleia then ok("baleia.nvim present (ANSI colors in output pane)")
+  else warn("baleia.nvim not found (output pane will be monochrome)") end
 end
 
 return M
