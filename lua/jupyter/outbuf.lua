@@ -73,9 +73,7 @@ local function scroll_to_bottom()
 end
 
 function M.is_visible() return out_winid and api.nvim_win_is_valid(out_winid) end
-
 function M.open() if not M.is_visible() then open_window() end end
-
 function M.toggle()
   if M.is_visible() then pcall(api.nvim_win_close, out_winid, true); out_winid=nil else open_window() end
 end
@@ -105,7 +103,22 @@ function M.start_cell(seq)
   stream_state[seq] = { row = api.nvim_buf_line_count(buf) - 1, line = "" }
 end
 
--- batched streaming with \r support
+-- helpers to decide if a segment has visible content
+local ANSI_CSI = "\27%[[0-?]*[ -/]*[@-~]"
+local function is_effectively_empty(s)
+  if not s or s == "" then return true end
+  s = tostring(s)
+  -- take the frame after the last CR (progress bars): the caller already does this,
+  -- but keep it harmless here
+  s = s:gsub("\r", "")
+  -- strip ANSI, backspaces, newlines, and whitespace
+  s = s:gsub(ANSI_CSI, "")
+       :gsub("\b", "")
+       :gsub("\n", "")
+  return s:match("^%s*$") ~= nil
+end
+
+-- batched streaming with \r support; only append non-empty visible content
 function M.append_stream(seq, text)
   if not text or text == "" then return end
   local buf = ensure_buf()
@@ -114,9 +127,11 @@ function M.append_stream(seq, text)
     st = { row = api.nvim_buf_line_count(buf) - 1, line = "" }
     stream_state[seq] = st
   end
+
   local s = tostring(text):gsub("\r\n", "\n")
   local trailing_nl = s:sub(-1) == "\n"
 
+  -- split into newline-terminated segments + optional final
   local segs, i = {}, 1
   while true do
     local j = s:find("\n", i, true)
@@ -126,26 +141,31 @@ function M.append_stream(seq, text)
 
   api.nvim_buf_set_option(buf, "modifiable", true)
 
+  -- write completed lines (all except the last if no trailing newline)
   local last_idx = trailing_nl and #segs or (#segs - 1)
   for k = 1, math.max(0, last_idx) do
     local seg = segs[k]
-    local vis = seg:match("[^\r]*$") or seg
-    set_lines_colored(buf, st.row, st.row + 1, { vis })
-    set_lines_colored(buf, st.row + 1, st.row + 1, { "" })
-    st.row, st.line = st.row + 1, ""
+    local vis = seg:match("[^\r]*$") or seg  -- frame after last CR
+    if not is_effectively_empty(vis) then
+      -- replace current line and advance (creating a new blank line)
+      set_lines_colored(buf, st.row, st.row + 1, { vis })
+      set_lines_colored(buf, st.row + 1, st.row + 1, { "" })
+      st.row, st.line = st.row + 1, ""
+    end
   end
 
+  -- update the in-place (non-terminated) line with the final frame, if non-empty
   if not trailing_nl then
     local final = (segs[#segs] or ""):match("[^\r]*$") or ""
-    if final ~= st.line then
+    if not is_effectively_empty(final) and final ~= st.line then
       set_lines_colored(buf, st.row, st.row + 1, { final })
       st.line = final
     end
   else
-    if st.line ~= "" then
-      set_lines_colored(buf, st.row, st.row + 1, { "" })
-      st.line = ""
-    end
+    -- a newline ended the stream chunk; do not emit an empty line,
+    -- and reset the in-place cache only if we actually wrote something above.
+    -- (st.line remains as last visible content if nothing was written)
+    -- no-op here is intentional
   end
 
   api.nvim_buf_set_option(buf, "modifiable", false)
