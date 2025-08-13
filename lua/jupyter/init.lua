@@ -1,6 +1,7 @@
 local kernel = require "jupyter.kernel"
 local utils  = require "jupyter.utils"
 local ui  = require "jupyter.ui"
+local out    = require "jupyter.outbuf"
 local M      = {}
 
 ---------------------------------------------------------------------

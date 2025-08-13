@@ -189,10 +189,56 @@ function M.stop()
   had_error = {}
 end
 
-function M.interrupt()
+function M.interrupt(opts)
+  opts = opts or {}
   if M.bridge then
     M.bridge:send({ type = "interrupt" })
   end
+end
+
+function M.start()
+  return ensure_bridge()
+end
+
+function M.restart()
+  if not M.bridge then return end
+  local cfg = get_cfg()
+  local cwd = vim.fn.getcwd()
+  M.bridge:send({ type = "restart", kernel = cfg.kernel_name or "python3", cwd = cwd })
+end
+
+function M.eval_line()
+  if not ensure_bridge() then return end
+  local line = vim.api.nvim_get_current_line()
+  local row = vim.api.nvim_win_get_cursor(0)[1] - 1  -- 0-based
+  M.execute(line, row)
+end
+
+function M.eval_selection()
+  if not ensure_bridge() then return end
+  local start_pos = vim.fn.getpos("'<")
+  local end_pos = vim.fn.getpos("'>")
+  local start_row, start_col = start_pos[2] - 1, start_pos[3] - 1  -- 0-based
+  local end_row, end_col = end_pos[2] - 1, end_pos[3] - 1
+  
+  local lines = vim.api.nvim_buf_get_lines(0, start_row, end_row + 1, false)
+  if #lines == 0 then return end
+  
+  -- Handle partial line selection
+  if #lines == 1 then
+    lines[1] = string.sub(lines[1], start_col + 1, end_col + 1)
+  else
+    lines[1] = string.sub(lines[1], start_col + 1)
+    lines[#lines] = string.sub(lines[#lines], 1, end_col + 1)
+  end
+  
+  local code = table.concat(lines, "\n")
+  M.execute(code, end_row)
+end
+
+function M.cancel_queue()
+  queue = {}
+  inflight = false
 end
 
 -- Execute code from a given source row (0-based)
