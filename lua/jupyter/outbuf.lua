@@ -15,7 +15,10 @@ end
 
 local M = {}
 local out_bufnr, out_winid = nil, nil
-local stream_state = {} -- seq -> { row, line }
+
+-- per-seq cell state
+-- state[seq] = { opened = bool, row = int|nil, line = string }
+local state = {}
 
 local function get_baleia()
   local ok, inst = pcall(function() return vim.g.baleia end)
@@ -51,7 +54,7 @@ local function open_window()
   if cfg.split == "right" then
     vim.cmd(("botright %dvsplit"):format(tonumber(cfg.width) or 60))
   else
-    vim.cmd(("botright %dsplit"):format(tonumber(cfg.height) or 6))
+    vim.cmd(("botright %dsplit"):format(tonumber(cfg.height) or 12))
   end
   out_winid = api.nvim_get_current_win()
   api.nvim_win_set_buf(out_winid, buf)
@@ -83,7 +86,7 @@ function M.clear()
   api.nvim_buf_set_option(buf, "modifiable", true)
   set_lines_colored(buf, 0, -1, {})
   api.nvim_buf_set_option(buf, "modifiable", false)
-  stream_state = {}
+  state = {}
   scroll_to_bottom()
 end
 
@@ -96,11 +99,24 @@ local function append_lines(lines)
   scroll_to_bottom()
 end
 
-function M.start_cell(seq)
+-- Lazy header: only print "## In [n]" when we actually have content to show
+local function ensure_started(seq)
+  local st = state[seq]
+  if st and st.opened then return st end
   M.open()
-  append_lines({ "", ("## In [%d]"):format(seq), "" })
   local buf = ensure_buf()
-  stream_state[seq] = { row = api.nvim_buf_line_count(buf) - 1, line = "" }
+  append_lines({ "", ("## In [%d]"):format(seq), "" })
+  st = st or {}
+  st.opened = true
+  st.row = api.nvim_buf_line_count(buf) - 1
+  st.line = st.line or ""
+  state[seq] = st
+  return st
+end
+
+function M.start_cell(seq)
+  -- register the cell but DO NOT open or print header yet
+  state[seq] = { opened = false, row = nil, line = "" }
 end
 
 -- helpers to decide if a segment has visible content
@@ -108,11 +124,9 @@ local ANSI_CSI = "\27%[[0-?]*[ -/]*[@-~]"
 local function is_effectively_empty(s)
   if not s or s == "" then return true end
   s = tostring(s)
-  -- take the frame after the last CR (progress bars): the caller already does this,
-  -- but keep it harmless here
+  -- remove CR, ANSI, backspace, newlines, then trim
   s = s:gsub("\r", "")
-  -- strip ANSI, backspaces, newlines, and whitespace
-  s = s:gsub(ANSI_CSI, "")
+       :gsub(ANSI_CSI, "")
        :gsub("\b", "")
        :gsub("\n", "")
   return s:match("^%s*$") ~= nil
@@ -121,12 +135,6 @@ end
 -- batched streaming with \r support; only append non-empty visible content
 function M.append_stream(seq, text)
   if not text or text == "" then return end
-  local buf = ensure_buf()
-  local st = stream_state[seq]
-  if not st then
-    st = { row = api.nvim_buf_line_count(buf) - 1, line = "" }
-    stream_state[seq] = st
-  end
 
   local s = tostring(text):gsub("\r\n", "\n")
   local trailing_nl = s:sub(-1) == "\n"
@@ -139,47 +147,57 @@ function M.append_stream(seq, text)
     table.insert(segs, s:sub(i, j - 1)); i = j + 1
   end
 
-  api.nvim_buf_set_option(buf, "modifiable", true)
-
-  -- write completed lines (all except the last if no trailing newline)
+  -- completed lines (all except the last if no trailing newline)
+  local wrote_any = false
   local last_idx = trailing_nl and #segs or (#segs - 1)
   for k = 1, math.max(0, last_idx) do
     local seg = segs[k]
-    local vis = seg:match("[^\r]*$") or seg  -- frame after last CR
+    local vis = seg:match("[^\r]*$") or seg
     if not is_effectively_empty(vis) then
-      -- replace current line and advance (creating a new blank line)
+      local st = ensure_started(seq)
+      local buf = ensure_buf()
+      api.nvim_buf_set_option(buf, "modifiable", true)
       set_lines_colored(buf, st.row, st.row + 1, { vis })
       set_lines_colored(buf, st.row + 1, st.row + 1, { "" })
+      api.nvim_buf_set_option(buf, "modifiable", false)
       st.row, st.line = st.row + 1, ""
+      wrote_any = true
     end
   end
 
   -- update the in-place (non-terminated) line with the final frame, if non-empty
   if not trailing_nl then
     local final = (segs[#segs] or ""):match("[^\r]*$") or ""
-    if not is_effectively_empty(final) and final ~= st.line then
-      set_lines_colored(buf, st.row, st.row + 1, { final })
-      st.line = final
+    if not is_effectively_empty(final) then
+      local st = ensure_started(seq)
+      local buf = ensure_buf()
+      if final ~= st.line then
+        api.nvim_buf_set_option(buf, "modifiable", true)
+        set_lines_colored(buf, st.row, st.row + 1, { final })
+        api.nvim_buf_set_option(buf, "modifiable", false)
+        st.line = final
+        wrote_any = true
+      end
     end
-  else
-    -- a newline ended the stream chunk; do not emit an empty line,
-    -- and reset the in-place cache only if we actually wrote something above.
-    -- (st.line remains as last visible content if nothing was written)
-    -- no-op here is intentional
   end
 
-  api.nvim_buf_set_option(buf, "modifiable", false)
-  scroll_to_bottom()
+  if wrote_any then scroll_to_bottom() end
 end
 
-function M.append(_seq, text)
-  local s = tostring(text or ""); if s == "" then return end
-  local lines = {}; for line in (s .. "\n"):gmatch("([^\n]*)\n") do table.insert(lines, line) end
+function M.append(seq, text)
+  local s = tostring(text or "")
+  if s == "" or s:match("^%s*$") then return end
+  ensure_started(seq)
+  local lines = {}
+  for line in (s .. "\n"):gmatch("([^\n]*)\n") do table.insert(lines, line) end
   if #lines > 0 then append_lines(lines) end
 end
 
-function M.append_markdown(_seq, md)
-  append_lines({ "", tostring(md or ""), "" })
+function M.append_markdown(seq, md)
+  local s = tostring(md or "")
+  if s == "" or s:match("^%s*$") then return end
+  ensure_started(seq)
+  append_lines({ "", s, "" })
 end
 
 return M
