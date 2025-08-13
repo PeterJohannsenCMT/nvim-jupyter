@@ -91,10 +91,18 @@ function M.clear()
 end
 
 local function append_lines(lines)
-  local buf = ensure_buf()
+  local buf  = ensure_buf()
   local last = api.nvim_buf_line_count(buf)
+  local last_line = api.nvim_buf_get_lines(buf, last - 1, last, false)[1]
+
   api.nvim_buf_set_option(buf, "modifiable", true)
-  set_lines_colored(buf, last, last, lines)
+  if last == 1 and (last_line == nil or last_line == "") then
+    -- Buffer is "empty": replace that first blank line
+    set_lines_colored(buf, 0, 1, lines)
+  else
+    -- Real content exists: append after last line
+    set_lines_colored(buf, last, last, lines)
+  end
   api.nvim_buf_set_option(buf, "modifiable", false)
   scroll_to_bottom()
 end
@@ -105,7 +113,7 @@ local function ensure_started(seq)
   if st and st.opened then return st end
   M.open()
   local buf = ensure_buf()
-  append_lines({ "", ("## In [%d]"):format(seq), "" })
+  append_lines({("## In [%d]"):format(seq), ""})
   st = st or {}
   st.opened = true
   st.row = api.nvim_buf_line_count(buf) - 1
@@ -147,8 +155,9 @@ function M.append_stream(seq, text)
     table.insert(segs, s:sub(i, j - 1)); i = j + 1
   end
 
-  -- completed lines (all except the last if no trailing newline)
   local wrote_any = false
+
+  -- completed lines (only when non-empty after CR/ANSI stripping)
   local last_idx = trailing_nl and #segs or (#segs - 1)
   for k = 1, math.max(0, last_idx) do
     local seg = segs[k]
@@ -165,7 +174,7 @@ function M.append_stream(seq, text)
     end
   end
 
-  -- update the in-place (non-terminated) line with the final frame, if non-empty
+  -- in-place progress frame (no newline): update only if non-empty and changed
   if not trailing_nl then
     local final = (segs[#segs] or ""):match("[^\r]*$") or ""
     if not is_effectively_empty(final) then

@@ -66,7 +66,6 @@ local function ensure_bridge()
   M.bridge = br
   ready    = false
 
-  -- NOTE: use ':' so 'self' is passed correctly
   br:on_message(function(msg)
     local t = msg.type
 
@@ -88,6 +87,16 @@ local function ensure_bridge()
       end
       return
 
+    elseif t == "stdin_request" then
+
+      local prompt = msg.prompt or ""
+
+			vim.ui.input({ prompt = prompt }, function(input)
+				M.bridge:send({ type = "stdin_reply", text = input or "" })
+			end)
+
+      -- end
+      return
     elseif t == "result" then
       out.append(msg.seq, msg.value or "")
       return

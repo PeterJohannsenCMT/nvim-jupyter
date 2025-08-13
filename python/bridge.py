@@ -1,55 +1,32 @@
 #!/usr/bin/env python3
 """
-nvim-jupyter bridge (cooperative event loop, ANSI preserved).
-
-Commands from Neovim (one JSON per line):
-  {"type":"start", "kernel":"python3", "cwd":"/path/optional"}
-  {"type":"execute", "seq":<int>, "code":"..."}
-  {"type":"interrupt"}
-  {"type":"restart"}
-  {"type":"shutdown"}
-
-Events to Neovim (one JSON per line):
-  {"type":"ready"}
-  {"type":"stream",   "seq":n, "name":"stdout|stderr", "text":"..."}   # ANSI kept
-  {"type":"result",   "seq":n, "value":"text/plain"}
-  {"type":"markdown", "seq":n, "value":"..."}
-  {"type":"image",    "seq":n, "path":"/tmp/....png|.svg"}
-  {"type":"error",    "seq":n, "ename":"...", "evalue":"...", "traceback":"..."}  # ANSI kept
-  {"type":"done",     "seq":n}
-  {"type":"interrupted"}  # ack when an interrupt is requested
-  {"type":"bye"}          # after shutdown
+nvim-jupyter bridge (cooperative loop; JSON-only on stdout; ANSI preserved).
+Adds stdin support: forwards input_request -> Neovim and accepts stdin_reply.
 """
-import base64
-import json
-import os
-import select
-import signal
-import sys
-import tempfile
-import time
-import traceback
+import base64, json, os, select, signal, sys, tempfile, traceback
 from collections import deque
+
+# ---- unbuffered, consistent IO ----
+try:
+    sys.stdin.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8", newline="\n")
+except Exception:
+    pass
 
 from jupyter_client import KernelManager
 
 km = None
 kc = None
+_current = None            # {"seq": int, "msg_id": str}
+_queue = deque()
 
-# execution state
-current = None             # {"seq": int, "msg_id": str}
-queue = deque()
-
-# ---------- helpers ----------
-
-def send(obj: dict) -> None:
+def send(obj):
     sys.stdout.write(json.dumps(obj) + "\n")
     sys.stdout.flush()
 
-def _b64_to_file(payload_b64: str, suffix: str) -> str:
+def _b64_to_file(payload_b64, suffix):
     fd, path = tempfile.mkstemp(suffix=suffix); os.close(fd)
-    with open(path, "wb") as f:
-        f.write(base64.b64decode(payload_b64))
+    with open(path, "wb") as f: f.write(base64.b64decode(payload_b64))
     return path
 
 def _safe_stop_channels():
@@ -60,7 +37,7 @@ def _safe_stop_channels():
     except Exception:
         pass
 
-def _safe_shutdown_kernel(now: bool = True):
+def _safe_shutdown_kernel(now=True):
     global km
     try:
         if km is not None:
@@ -76,12 +53,12 @@ def _safe_shutdown_kernel(now: bool = True):
 def _kernel_ready():
     return km is not None and kc is not None
 
-def _start_kernel(kernel: str, cwd: str | None):
+# ---------- kernel mgmt ----------
+def _start_kernel(kernel, cwd):
     global km, kc
     if cwd:
         try: os.chdir(cwd)
         except Exception: pass
-    # jupyter_client ≥ 8: pass kernel_name at construction
     km = KernelManager(kernel_name=(kernel or "python3"))
     km.start_kernel()
     kc = km.client()
@@ -90,10 +67,10 @@ def _start_kernel(kernel: str, cwd: str | None):
     send({"type": "ready"})
 
 def _restart_kernel():
-    global kc, current, queue
+    global kc, _current, _queue
     _safe_stop_channels()
-    current = None
-    queue.clear()
+    _current = None
+    _queue.clear()
     km.restart_kernel(now=True)
     kc = km.client()
     kc.start_channels()
@@ -101,8 +78,8 @@ def _restart_kernel():
     send({"type": "ready"})
 
 def _shutdown():
-    global km, kc, current
-    current = None
+    global km, kc, _current
+    _current = None
     _safe_stop_channels()
     _safe_shutdown_kernel(now=True)
     km = None
@@ -115,24 +92,20 @@ def _sigterm(_sig, _frm):
 signal.signal(signal.SIGTERM, _sigterm)
 signal.signal(signal.SIGINT,  _sigterm)
 
-# ---------- IOPub draining ----------
-
-def _drain_iopub_once() -> None:
-    """Drain at most one IOPub message for the current execution."""
-    global current
-    if not current or not _kernel_ready():
+# ---------- IOPub / STDIN draining ----------
+def _drain_iopub_once():
+    global _current
+    if not _current or not _kernel_ready():
         return
     try:
-        # short timeout keeps loop responsive to stdin (interrupt/shutdown)
         msg = kc.get_iopub_msg(timeout=0.05)
     except Exception:
         return
     if not msg:
         return
 
-    # Only forward messages for our current execution
     parent = msg.get("parent_header", {})
-    if parent.get("msg_id") != current["msg_id"]:
+    if parent.get("msg_id") != _current["msg_id"]:
         return
 
     mtype   = msg["header"]["msg_type"]
@@ -142,56 +115,74 @@ def _drain_iopub_once() -> None:
         data = content.get("data", {})
         if "image/png" in data:
             path = _b64_to_file(data["image/png"], ".png")
-            send({"type": "image", "seq": current["seq"], "path": path})
+            send({"type": "image", "seq": _current["seq"], "path": path})
         elif "image/svg+xml" in data:
             fd, path = tempfile.mkstemp(suffix=".svg"); os.close(fd)
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(data["image/svg+xml"])
-            send({"type": "image", "seq": current["seq"], "path": path})
+            with open(path, "w", encoding="utf-8") as f: f.write(data["image/svg+xml"])
+            send({"type": "image", "seq": _current["seq"], "path": path})
         elif "text/markdown" in data:
-            send({"type": "markdown", "seq": current["seq"], "value": data["text/markdown"]})
+            send({"type": "markdown", "seq": _current["seq"], "value": data["text/markdown"]})
         elif "text/plain" in data:
-            send({"type": "result", "seq": current["seq"], "value": data["text/plain"]})
+            send({"type": "result", "seq": _current["seq"], "value": data["text/plain"]})
 
     elif mtype == "stream":
-        # Keep ANSI; Neovim will colorize via baleia.nvim
-        send({"type": "stream", "seq": current["seq"],
-              "name": content.get("name"),
-              "text": content.get("text", "")})
+        send({"type": "stream", "seq": _current["seq"],
+              "name": content.get("name"), "text": content.get("text", "")})
 
     elif mtype == "error":
-        # Keep ANSI; Neovim will colorize via baleia.nvim
         tb_list = content.get("traceback", []) or []
         tb_text = "\n".join(tb_list)
-        send({"type": "error", "seq": current["seq"],
+        send({"type": "error", "seq": _current["seq"],
               "ename": content.get("ename", "Error"),
               "evalue": content.get("evalue", ""),
               "traceback": tb_text})
 
     elif mtype == "status" and content.get("execution_state") == "idle":
-        send({"type": "done", "seq": current["seq"]})
-        current = None  # finished
+        send({"type": "done", "seq": _current["seq"]})
+        _current = None
+
+def _drain_stdin_once():
+    """Forward input_request to Neovim."""
+    if not _kernel_ready():
+        return
+    ch = getattr(kc, "stdin_channel", None)
+    if ch is None:
+        return
+    try:
+        msg = ch.get_msg(timeout=0.0)
+    except Exception:
+        return
+    if not msg:
+        return
+    if msg.get("header", {}).get("msg_type") == "input_request":
+        c = msg.get("content", {}) or {}
+        send({
+            "type": "stdin_request",
+            "seq": _current["seq"] if _current else None,
+            "prompt": c.get("prompt", ""),
+            "password": bool(c.get("password", False)),
+        })
 
 def _maybe_start_next():
-    """If idle and queue has work, start the next execution."""
-    global current
-    if current or not queue or not _kernel_ready():
+    global _current
+    if _current or not _queue or not _kernel_ready():
         return
-    seq, code = queue.popleft()
-    msg_id = kc.execute(code, store_history=True, allow_stdin=False)
-    current = {"seq": seq, "msg_id": msg_id}
+    seq, code = _queue.popleft()
+    # allow stdin so click/input() works
+    msg_id = kc.execute(code, store_history=True, allow_stdin=True)
+    _current = {"seq": seq, "msg_id": msg_id}
 
 # ---------- command handling ----------
-
-def _handle_command(req: dict) -> bool:
-    """Process a single command. Return False to exit."""
+def _handle_command(req):
     typ = req.get("type")
     try:
         if typ == "start":
             _start_kernel(req.get("kernel") or "python3", req.get("cwd"))
         elif typ == "execute":
-            # enqueue; loop will start it when idle
-            queue.append((req["seq"], req["code"]))
+            _queue.append((req["seq"], req["code"]))
+        elif typ == "stdin_reply":
+            # reply to the most recent input_request
+            kc.input(req.get("text", ""))
         elif typ == "interrupt":
             send({"type": "interrupted"})
             if km:
@@ -209,13 +200,10 @@ def _handle_command(req: dict) -> bool:
     return True
 
 # ---------- main loop ----------
-
-def main() -> None:
-    """Cooperative loop: poll stdin for commands, interleave with IOPub draining."""
+def main():
     buf = ""
     stdin_fd = sys.stdin.fileno()
     while True:
-        # 1) Poll stdin (non-blocking, ~50ms)
         rlist, _, _ = select.select([stdin_fd], [], [], 0.05)
         if rlist:
             chunk = os.read(stdin_fd, 4096).decode("utf-8", "replace")
@@ -223,7 +211,6 @@ def main() -> None:
                 _shutdown()
                 break
             buf += chunk
-            # process complete lines
             while True:
                 nl = buf.find("\n")
                 if nl < 0: break
@@ -238,11 +225,9 @@ def main() -> None:
                         continue
                     if not _handle_command(req):
                         return
-
-        # 2) If idle, start next execute
         _maybe_start_next()
-        # 3) Drain one IOPub message (keeps progress live)
         _drain_iopub_once()
+        _drain_stdin_once()
 
 if __name__ == "__main__":
     try:
