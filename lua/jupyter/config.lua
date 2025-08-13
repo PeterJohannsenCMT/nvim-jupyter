@@ -1,0 +1,27 @@
+local M = {
+	python_cmd = (vim.env.CONDA_PREFIX and (vim.env.CONDA_PREFIX .. "/bin/python")) or "python3",
+  kernel_name   = "python3",  -- Jupyter kernel to start
+  bridge_script = nil,        -- Optional absolute path to python/bridge.py
+
+	out = {
+		split       = "bottom",   -- "bottom" or "right"
+		height      = 12,         -- rows for bottom split
+		width       = 60,         -- cols for right split
+		open_on_run = true,       -- auto-open pane on first execution
+		auto_scroll = true,
+		focus_on_open = false,
+	},
+	interrupt = {
+		drop_queue = true,
+		timeout_ms = 3000,
+		restart_on_timeout = true,
+	},
+	inline = {
+		strip_ansi = true,
+		maxlen     = 120,
+		prefix     = " ⇒ ",
+		hl_normal  = "JupyterInline",
+		hl_error   = "ErrorMsg",
+	},
+}
+return M
