@@ -1,0 +1,489 @@
+*jupyter.txt*  Jupyter kernel integration for Neovim
+
+Author: Your Name
+License: Personal Use
+
+==============================================================================
+CONTENTS                                                       *jupyter-contents*
+
+1. Introduction                                        |jupyter-introduction|
+2. Requirements                                        |jupyter-requirements|
+3. Installation                                        |jupyter-installation|
+4. Quick Start                                         |jupyter-quickstart|
+5. Commands                                            |jupyter-commands|
+6. Keybindings                                         |jupyter-keybindings|
+7. Configuration                                       |jupyter-configuration|
+8. Cell Markers                                        |jupyter-cells|
+9. Output Display                                      |jupyter-output|
+10. Architecture                                       |jupyter-architecture|
+11. Troubleshooting                                    |jupyter-troubleshooting|
+12. API                                                |jupyter-api|
+
+==============================================================================
+1. INTRODUCTION                                           *jupyter-introduction*
+
+nvim-jupyter is a modern Neovim plugin that enables seamless interaction with
+Jupyter kernels directly from your editor. Execute Python code cells, view
+outputs inline, and maintain a live connection to your Jupyter kernel—all
+without leaving Neovim.
+
+Key features:
+- Live Jupyter kernel integration
+- Cell-based execution with `#%%` markers
+- Inline output display with virtual text
+- Rich output support (text, markdown, images, ANSI colors)
+- Visual feedback with signs and indicators
+- Queue management for multiple executions
+- Auto-detection of Python environments
+- Optional split pane for detailed output
+- Non-blocking asynchronous execution
+
+==============================================================================
+2. REQUIREMENTS                                           *jupyter-requirements*
+
+- Neovim 0.8 or later
+- Python 3.7 or later
+- jupyter-client Python package
+- A Jupyter kernel (typically python3 or ipython)
+
+Install Python dependencies: >
+    pip install jupyter-client
+<
+Or with conda: >
+    conda install jupyter-client
+<
+
+==============================================================================
+3. INSTALLATION                                           *jupyter-installation*
+
+Using lazy.nvim: >
+    {
+      "nvim-jupyter",
+      ft = "python",
+      config = function()
+        require("jupyter").setup({
+          -- Optional configuration
+        })
+      end,
+    }
+<
+
+Using packer.nvim: >
+    use {
+      "nvim-jupyter",
+      ft = "python",
+      config = function()
+        require("jupyter").setup()
+      end
+    }
+<
+
+Manual installation: >
+    vim.opt.rtp:prepend("/path/to/nvim-jupyter")
+    require("jupyter").setup()
+<
+
+==============================================================================
+4. QUICK START                                             *jupyter-quickstart*
+
+1. Create a Python file with cell markers: >
+    #%% Cell 1
+    import numpy as np
+    print("Hello from Jupyter!")
+    
+    #%% Cell 2
+    x = np.linspace(0, 10, 100)
+    print(f"Array shape: {x.shape}")
+<
+
+2. Start the Jupyter kernel: >
+    :JupyterStart
+<
+
+3. Execute cells:
+   - Place cursor in a cell and press <Enter> (normal mode)
+   - Or use |:JupyterRunCell|
+
+4. View results:
+   - Inline virtual text shows outputs
+   - Signs in the gutter indicate execution status
+   - Optional split pane for detailed output
+
+==============================================================================
+5. COMMANDS                                                 *jupyter-commands*
+
+                                                          *:JupyterStart*
+:JupyterStart           Start a new Jupyter kernel. Automatically detects
+                        your Python environment (conda/virtualenv) or uses
+                        the configured python_cmd.
+
+                                                          *:JupyterRestart*
+:JupyterRestart         Restart the current kernel. All variables will be
+                        lost, but the connection remains active.
+
+                                                          *:JupyterStop*
+:JupyterStop            Stop the kernel and close the connection. You'll need
+                        to run |:JupyterStart| again to execute code.
+
+                                                          *:JupyterInterrupt*
+:JupyterInterrupt       Interrupt the current execution. By default, this
+                        also drops any queued executions.
+
+                                                      *:JupyterInterruptKeep*
+:JupyterInterruptKeep   Interrupt current execution but keep queued
+                        executions. They will run after the interrupt.
+
+                                                       *:JupyterCancelQueue*
+:JupyterCancelQueue     Cancel all queued executions without interrupting
+                        the current one.
+
+                                                          *:JupyterRunLine*
+:JupyterRunLine         Execute the current line. Cursor remains in place.
+
+                                                     *:JupyterRunSelection*
+:JupyterRunSelection    Execute the visually selected text. Works in visual
+                        mode.
+
+                                                          *:JupyterRunCell*
+:JupyterRunCell         Execute the current cell (defined by |jupyter-cells|
+                        markers). After execution, cursor moves to the next
+                        cell or end of buffer.
+
+                                                      *:JupyterRunCellStay*
+:JupyterRunCellStay     Execute the current cell but keep cursor position
+                        unchanged.
+
+                                                         *:JupyterRunAbove*
+:JupyterRunAbove        Execute all code from the beginning of the file up
+                        to and including the current cursor line.
+
+                                                       *:JupyterToggleOut*
+:JupyterToggleOut       Toggle the output split pane. If closed, opens it.
+                        If open, closes it.
+
+                                                        *:JupyterClearAll*
+:JupyterClearAll        Clear all inline virtual text output from the
+                        current buffer.
+
+==============================================================================
+6. KEYBINDINGS                                           *jupyter-keybindings*
+
+The plugin automatically sets up these keybindings for Python files:
+
+Normal mode:
+  <CR>              Execute current cell               |:JupyterRunCell|
+  <leader>jC        Execute cell, stay in place       |:JupyterRunCellStay|
+  <leader>jl        Execute current line               |:JupyterRunLine|
+  <leader>ja        Execute all above cursor           |:JupyterRunAbove|
+  <leader>jr        Start Jupyter kernel               |:JupyterStart|
+  <leader>js        Stop Jupyter kernel                |:JupyterStop|
+  <leader>ji        Interrupt execution                |:JupyterInterrupt|
+  <leader>jo        Toggle output pane                 |:JupyterToggleOut|
+  <leader>jc        Clear all virtual text             |:JupyterClearAll|
+
+Visual mode:
+  <leader>js        Execute selected text              |:JupyterRunSelection|
+
+To disable default keybindings or customize them, see |jupyter-configuration|.
+
+==============================================================================
+7. CONFIGURATION                                       *jupyter-configuration*
+
+The plugin works out of the box with sensible defaults. Customize it by
+passing options to the setup function: >
+
+    require("jupyter").setup({
+      -- Python command (auto-detects conda/virtualenv)
+      python_cmd = "python3",
+      
+      -- Jupyter kernel name
+      kernel_name = "python3",
+      
+      -- Absolute path to bridge.py (usually auto-detected)
+      bridge_script = nil,
+      
+      -- Output pane settings
+      out = {
+        split = "bottom",        -- "bottom" or "right"
+        height = 12,             -- rows for bottom split
+        width = 60,              -- columns for right split
+        open_on_run = true,      -- auto-open on first execution
+        auto_scroll = true,      -- scroll to latest output
+        focus_on_open = false,   -- don't steal focus when opening
+      },
+      
+      -- Interrupt behavior
+      interrupt = {
+        drop_queue = true,        -- drop pending executions on interrupt
+        timeout_ms = 3000,        -- timeout before forcing restart
+        restart_on_timeout = true,-- restart kernel if interrupt times out
+      },
+      
+      -- Inline output display
+      inline = {
+        strip_ansi = true,        -- remove ANSI color codes from inline text
+        maxlen = 120,             -- max length of inline output
+        prefix = " ⇒ ",           -- prefix for inline output
+        hl_normal = "JupyterInline", -- highlight group for normal output
+        hl_error = "ErrorMsg",    -- highlight group for errors
+      },
+    })
+<
+
+                                                    *jupyter-python-detection*
+Python Environment Detection~
+
+The plugin automatically detects your Python environment in this order:
+1. Conda: Uses `$CONDA_PREFIX/bin/python` if the CONDA_PREFIX environment
+   variable is set
+2. Fallback: Uses `python3` from your PATH
+3. Override: Set `python_cmd` in configuration to use a specific Python
+
+This ensures that the plugin uses the same Python environment as your current
+shell session.
+
+                                                         *jupyter-keymaps*
+Customizing Keymaps~
+
+To disable the default keymaps, you can clear them after the plugin loads: >
+    vim.api.nvim_create_autocmd("FileType", {
+      pattern = "python",
+      callback = function(ev)
+        -- Clear the default <CR> mapping if you want to use it for something else
+        vim.keymap.del("n", "<CR>", { buffer = ev.buf })
+      end,
+    })
+<
+
+To add custom keymaps: >
+    vim.api.nvim_create_autocmd("FileType", {
+      pattern = "python",
+      callback = function(ev)
+        local buf = ev.buf
+        vim.keymap.set("n", "<F5>", "<cmd>JupyterRunCell<CR>", 
+                       { buffer = buf, desc = "Run Jupyter cell" })
+      end,
+    })
+<
+
+==============================================================================
+8. CELL MARKERS                                                *jupyter-cells*
+
+The plugin recognizes Jupyter-style cell markers for defining code blocks.
+These are the same markers used by Jupyter notebooks, VSCode Python extension,
+and Spyder.
+
+Valid cell markers: >
+    #%%
+    # %%
+    #  %%
+    # %% Cell title here
+    #%% Another cell
+<
+
+Cell Behavior:
+- Cells are delimited by lines starting with `#%%` (with optional whitespace
+  and comments)
+- When the cursor is on a marker line, execution includes the cell BELOW that
+  marker
+- When the cursor is inside a cell, that entire cell is executed
+- Files without any markers will show a warning when trying to run cells
+
+Example file structure: >
+    #%% Import libraries
+    import numpy as np
+    import matplotlib.pyplot as plt
+    
+    #%% Generate data
+    x = np.linspace(0, 10, 100)
+    y = np.sin(x)
+    
+    #%% Plot results
+    plt.figure(figsize=(10, 6))
+    plt.plot(x, y)
+    plt.title("Sine wave")
+    plt.show()
+<
+
+==============================================================================
+9. OUTPUT DISPLAY                                             *jupyter-output*
+
+The plugin provides multiple ways to view execution output:
+
+Inline Virtual Text~
+Results appear as virtual text next to your code:
+- Success: Shows ✓ sign and truncated result preview
+- Error: Shows ✗ sign and error message
+- Running: Shows ▶ sign and "running..." indicator
+- Long outputs are truncated with "..." to fit on screen
+
+Signs in Gutter~
+Visual indicators in the sign column show execution status:
+- ▶ : Code is currently executing
+- ✓ : Execution completed successfully
+- ✗ : Execution failed with error
+
+Split Pane Output~
+A dedicated output buffer shows detailed results:
+- Full output without truncation
+- ANSI color codes preserved (requires baleia.nvim or similar)
+- Images saved to temporary files with paths displayed
+- Markdown content rendered appropriately
+- Auto-scrolls to latest output
+- Toggle with |:JupyterToggleOut|
+
+Output Types Supported:
+- Plain text results
+- Rich HTML/Markdown (converted to text)
+- Images (PNG/SVG saved to temp files)
+- Error tracebacks with full stack traces
+- Stream output (stdout/stderr) with ANSI colors
+
+==============================================================================
+10. ARCHITECTURE                                         *jupyter-architecture*
+
+The plugin consists of several components working together:
+
+Components:
+- Bridge (`python/bridge.py`): Python process that manages Jupyter kernel
+  communication using the jupyter-client library
+- Transport (`lua/jupyter/transport.lua`): Handles stdin/stdout JSON
+  communication with the Python bridge process
+- Kernel (`lua/jupyter/kernel.lua`): Manages execution queue, message
+  handling, and kernel lifecycle
+- UI (`lua/jupyter/ui.lua`): Handles signs, virtual text, and output display
+  in Neovim buffers
+- Utils (`lua/jupyter/utils.lua`): Cell detection and buffer manipulation
+  utilities
+
+Communication Flow:
+1. User triggers code execution via command or keymap
+2. Neovim sends execute request to Python bridge via JSON over stdin
+3. Bridge forwards code to Jupyter kernel and listens for results
+4. Bridge streams results back to Neovim as JSON messages
+5. Neovim receives messages and updates UI in real-time
+6. Multiple executions are queued and processed sequentially
+
+This architecture ensures:
+- Non-blocking execution (Neovim remains responsive)
+- Real-time output streaming
+- Proper error handling and recovery
+- Support for rich output formats
+- Clean separation of concerns
+
+==============================================================================
+11. TROUBLESHOOTING                                   *jupyter-troubleshooting*
+
+Common Issues and Solutions:
+
+"Jupyter: kernel not running"~
+Cause: No active kernel connection
+Solution: Run |:JupyterStart| first
+Verify: Check that jupyter-client is installed with `pip list | grep jupyter`
+
+"bridge.py not found"~
+Cause: Plugin installation issue or incorrect runtime path
+Solution: 
+- Ensure the full plugin directory is in your 'runtimepath'
+- Set `bridge_script` to absolute path in configuration
+- Check file exists: `ls /path/to/plugin/python/bridge.py`
+
+"No #%% cell markers found"~
+Cause: File doesn't contain cell markers
+Solution: 
+- Add `#%%` markers to define cells in your Python file
+- Use |:JupyterRunLine| or |:JupyterRunSelection| instead
+- See |jupyter-cells| for marker syntax
+
+"Execution hangs or no output"~
+Cause: Kernel busy, crashed, or environment issues
+Solution:
+- Try |:JupyterInterrupt| to cancel current execution
+- Use |:JupyterRestart| to restart the kernel
+- Check Python environment has required packages
+- Verify code syntax is correct
+
+"Wrong Python environment"~
+Cause: Plugin using different Python than expected
+Solution:
+- Activate your desired environment before starting Neovim
+- Set `python_cmd` in configuration to specific Python path
+- Check environment: `:lua print(require('jupyter.config').python_cmd)`
+
+"Output contains ANSI escape codes"~
+Cause: Terminal colors not being interpreted
+Solution:
+- Install baleia.nvim for ANSI color support
+- Or set `inline.strip_ansi = true` in configuration
+
+Debugging Commands:
+Check kernel status: >
+    :lua print(require('jupyter.kernel').is_running())
+<
+View error messages: >
+    :messages
+<
+Check configuration: >
+    :lua print(vim.inspect(require('jupyter.config')))
+<
+Find bridge process: >
+    !ps aux | grep "bridge.py"
+<
+
+==============================================================================
+12. API                                                         *jupyter-api*
+
+Lua API for advanced usage and integration:
+
+                                                          *require('jupyter')*
+require('jupyter').setup({config})                      Setup the plugin with
+                                                         optional configuration
+
+require('jupyter').eval_current_block()                 Execute current cell
+
+require('jupyter').eval_all_above()                     Execute all above cursor
+
+                                                    *require('jupyter.kernel')*
+require('jupyter.kernel').start()                       Start kernel
+
+require('jupyter.kernel').stop()                        Stop kernel
+
+require('jupyter.kernel').restart()                     Restart kernel
+
+require('jupyter.kernel').interrupt()                   Interrupt execution
+
+require('jupyter.kernel').is_running()                  Check if kernel is active
+
+require('jupyter.kernel').execute(code, row)           Execute code string,
+                                                        show output at row
+
+                                                     *require('jupyter.utils')*
+require('jupyter.utils').find_code_block()             Find current cell bounds
+                                                        Returns (start, end) or
+                                                        (nil, nil)
+
+require('jupyter.utils').first_line_of_next_cell_from(row)
+                                                        Find next cell start
+
+Example usage: >
+    -- Custom command to run cell and move to next
+    vim.api.nvim_create_user_command("RunAndNext", function()
+      local utils = require('jupyter.utils')
+      local kernel = require('jupyter.kernel')
+      
+      -- Execute current cell
+      local s, e = utils.find_code_block()
+      if s and e then
+        local lines = vim.api.nvim_buf_get_lines(0, s, e + 1, false)
+        kernel.execute(table.concat(lines, "\n"), e)
+        
+        -- Move to next cell
+        local next_cell = utils.first_line_of_next_cell_from(e)
+        if next_cell then
+          vim.api.nvim_win_set_cursor(0, {next_cell + 1, 0})
+        end
+      end
+    end, {})
+<
+
+vim:tw=78:ts=8:ft=help:norl:
