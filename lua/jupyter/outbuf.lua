@@ -3,7 +3,7 @@ local api = vim.api
 local function get_out_cfg()
   local ok, cfg = pcall(require, "jupyter.config")
   local defaults = {
-    split = "bottom", height = 12, width = 60,
+    split = "bottom", height = 8, width = 60,
     open_on_run = true, focus_on_open = false, autoscroll = true,
     ansi = { enabled = true },
   }
@@ -72,7 +72,7 @@ local function open_window()
   if cfg.split == "right" then
     vim.cmd(("botright %dvsplit"):format(tonumber(cfg.width) or 60))
   else
-    vim.cmd(("botright %dsplit"):format(tonumber(cfg.height) or 12))
+    vim.cmd(("botright %dsplit"):format(tonumber(cfg.height) or 8))
   end
   out_winid = api.nvim_get_current_win()
   api.nvim_win_set_buf(out_winid, buf)
