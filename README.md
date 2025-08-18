@@ -291,3 +291,7 @@ This plugin is provided as-is for personal use.
 - [iron.nvim](https://github.com/hkupty/iron.nvim) - Interactive REPL over Neovim
 - [vim-slime](https://github.com/jpalardy/vim-slime) - Send code to terminal/tmux
 - [baleia.nvim](https://github.com/m00qek/baleia.nvim) - ANSI color support (recommended companion)
+
+# Known Issues
+
+- Multiple buffers with each their own kernel is not supported - currently, all buffers send the code to a single kernel, which means that they share variables (not ideal, I know).
