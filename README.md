@@ -295,4 +295,3 @@ This plugin is provided as-is for personal use.
 # Known Issues
 
 - [ ] Multiple buffers with each their own kernel is not supported - currently, all buffers send the code to a single kernel, which means that they share variables (not ideal, I know).
-- [ ] Currently can't toggle output. Additionally, if you close the output window, nvim-jupyter doesn't know what to do with output, and stops working...
