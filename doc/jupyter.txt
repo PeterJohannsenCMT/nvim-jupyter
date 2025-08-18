@@ -1,4 +1,4 @@
-*jupyter.txt*  Jupyter kernel integration for Neovim
+*jupyter.txt*  *jupyter* *nvim-jupyter*  Jupyter kernel integration for Neovim
 
 Author: Your Name
 License: Personal Use
