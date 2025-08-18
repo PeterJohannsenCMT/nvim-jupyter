@@ -187,5 +187,35 @@ function M.clear_signs(bufnr)
   pcall(vim.fn.sign_unplace, "nvim-jupyter", { buffer = bufnr })
 end
 
+-- Clear inline virtual text (our namespace) for a row range [srow, erow]
+function M.clear_range(bufnr, srow, erow)
+  if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then return end
+  if not (srow and erow) then return end
+  if erow < srow then srow, erow = erow, srow end
+  -- wipe extmarks in range for our namespace only
+  vim.api.nvim_buf_clear_namespace(bufnr, M.ns, srow, erow + 1)
+  -- drop cached per-row state in that range
+  if M._row_state and M._row_state[bufnr] then
+    for r = srow, erow do M._row_state[bufnr][r] = nil end
+  end
+  if vim.tbl_isempty(M._row_state[bufnr] or {}) then
+    M._row_state[bufnr] = {}
+  end
+end
+
+-- Clear only our signs in [srow, erow]
+function M.clear_signs_range(bufnr, srow, erow)
+  if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then return end
+  if not (srow and erow) then return end
+  if erow < srow then srow, erow = erow, srow end
+  local placed = vim.fn.sign_getplaced(bufnr, { group = "nvim-jupyter" }) or {}
+  local items = placed[1] and placed[1].signs or {}
+  for _, s in ipairs(items) do
+    local r0 = (s.lnum or 1) - 1
+    if r0 >= srow and r0 <= erow then
+      pcall(vim.fn.sign_unplace, "nvim-jupyter", { buffer = bufnr, id = s.id })
+    end
+  end
+end
 
 return M

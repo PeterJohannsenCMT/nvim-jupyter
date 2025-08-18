@@ -258,7 +258,7 @@ function M.execute(code, row)
   M.owner_buf = vim.api.nvim_get_current_buf()
 
   -- Clear inline at run start to avoid appending on re-run
-  ui.clear_row(M.owner_buf, row)
+  -- ui.clear_row(M.owner_buf, row)
   ui.place_sign("run", M.owner_buf, row)
 
   seq = seq + 1
@@ -286,6 +286,8 @@ function M.eval_current_block()
   for _, L in ipairs(lines) do if not L:match("^%s*$") then empty = false; break end end
   if empty then return end
   local code = table.concat(lines, "\n")
+	ui.clear_range(M.owner_buf, s, e+1)
+	ui.clear_signs_range(M.owner_buf, s, e+1)
   M.execute(code, e)  -- anchor at end row
 
 	local last_row0 = vim.api.nvim_buf_line_count(0)
