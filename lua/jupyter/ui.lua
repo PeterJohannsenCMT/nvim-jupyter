@@ -19,7 +19,7 @@ end
 local function get_cfg()
   local inline = {
     strip_ansi = true,
-    maxlen     = 160,
+    maxlen     = 300,
     prefix     = " ⟶ ",
     hl_normal  = "MoltenOutputWin",
     hl_error   = "DiagnosticError",

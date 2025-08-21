@@ -60,7 +60,10 @@ def _start_kernel(kernel, cwd):
         try: os.chdir(cwd)
         except Exception: pass
     km = KernelManager(kernel_name=(kernel or "python3"))
-    km.start_kernel()
+    import os
+    extra_env = os.environ.copy()
+    extra_env["PATH"] = "/Library/TeX/texbin:" + extra_env.get("PATH", "")
+    km.start_kernel(env = extra_env)
     kc = km.client()
     kc.start_channels()
     kc.wait_for_ready(timeout=30)

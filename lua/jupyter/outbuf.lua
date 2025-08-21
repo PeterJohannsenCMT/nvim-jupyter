@@ -40,16 +40,16 @@ end
 
 local function ensure_buf()
   if out_bufnr and api.nvim_buf_is_valid(out_bufnr) then return out_bufnr end
-  
+
   -- Reset references if buffer was invalid
   out_bufnr = nil
   out_winid = nil
-  
+
   out_bufnr = api.nvim_create_buf(false, true)
   api.nvim_buf_set_option(out_bufnr, "buftype", "nofile")
   api.nvim_buf_set_option(out_bufnr, "bufhidden", "hide")
   api.nvim_buf_set_option(out_bufnr, "filetype", "markdown")
-  
+
   -- Set up autocmd to clean up references when buffer is deleted
   api.nvim_create_autocmd({"BufDelete", "BufWipeout"}, {
     buffer = out_bufnr,
@@ -61,7 +61,7 @@ local function ensure_buf()
     end,
     once = true,
   })
-  
+
   return out_bufnr
 end
 
@@ -100,7 +100,7 @@ function M.toggle()
     pcall(api.nvim_win_close, out_winid, true)
     out_winid = nil
   else 
-    open_window() 
+    open_window()
   end
 end
 
