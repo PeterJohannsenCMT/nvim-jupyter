@@ -1,10 +1,12 @@
 local api = vim.api
+local ui = require "jupyter.ui"
+local cfg_out = require"jupyter.config".out or {}
 
 local function get_out_cfg()
   local ok, cfg = pcall(require, "jupyter.config")
   local defaults = {
     split = "bottom", height = 8, width = 60,
-    open_on_run = true, focus_on_open = false, autoscroll = true,
+    open_on_run = true, focus_on_open = false, auto_scroll = true,
     ansi = { enabled = true },
   }
   local out_cfg = (ok and type(cfg) == "table" and cfg.out) or {}
@@ -15,6 +17,7 @@ end
 
 local M = {}
 local out_bufnr, out_winid = nil, nil
+-- local highlight_timer = nil
 
 -- per-seq cell state
 -- state[seq] = { opened = bool, row = int|nil, line = string }
@@ -45,21 +48,49 @@ local function ensure_buf()
   out_bufnr = nil
   out_winid = nil
 
-  out_bufnr = api.nvim_create_buf(false, true)
-  api.nvim_buf_set_option(out_bufnr, "buftype", "nofile")
-  api.nvim_buf_set_option(out_bufnr, "bufhidden", "hide")
-  api.nvim_buf_set_option(out_bufnr, "filetype", "markdown")
+	out_bufnr = api.nvim_create_buf(false, true)
+	-- Give outbuf its own background
+
+
+	api.nvim_buf_set_option(out_bufnr, "buftype", "nofile")
+	api.nvim_buf_set_option(out_bufnr, "bufhidden", "hide")
+	api.nvim_buf_set_option(out_bufnr, "filetype", "markdown")
+	vim.b[out_bufnr].is_outbuf = true
 
   -- Set up autocmd to clean up references when buffer is deleted
   api.nvim_create_autocmd({"BufDelete", "BufWipeout"}, {
     buffer = out_bufnr,
     callback = function()
       if out_bufnr then
+        -- stop_highlight_timer()
         out_bufnr = nil
         out_winid = nil
       end
     end,
     once = true,
+  })
+
+  -- Set up autocmd to maintain highlight for this buffer's window at all times
+  api.nvim_create_autocmd({ "BufEnter", "WinEnter", "BufWinEnter", "BufLeave", "WinLeave" }, {
+    buffer = out_bufnr,
+    callback = function()
+      -- Find the window that contains this outbuf, regardless of current window
+      local outbuf_win = nil
+      for _, win in ipairs(api.nvim_list_wins()) do
+        if api.nvim_win_is_valid(win) and api.nvim_win_get_buf(win) == out_bufnr then
+          outbuf_win = win
+          break
+        end
+      end
+      
+      if outbuf_win and vim.b[out_bufnr].is_outbuf then
+        local cfg = get_out_cfg()
+        local grp = (cfg.highlight or vim.g.jupyter_outbuf_hl or "JupyterOutput")
+        vim.wo[outbuf_win].winhighlight =
+          ("Normal:%s,NormalNC:%s,EndOfBuffer:%s,SignColumn:%s,LineNr:%s,FoldColumn:%s,CursorLine:%s,CursorLineNr:%s")
+          :format(grp, grp, grp, grp, grp, grp, grp, grp)
+      end
+    end,
   })
 
   return out_bufnr
@@ -69,22 +100,79 @@ local function open_window()
   local cfg = get_out_cfg()
   local prev = api.nvim_get_current_win()
   local buf = ensure_buf()
+
   if cfg.split == "right" then
     vim.cmd(("botright %dvsplit"):format(tonumber(cfg.width) or 60))
   else
     vim.cmd(("botright %dsplit"):format(tonumber(cfg.height) or 8))
   end
+
+	vim.b[buf].is_outbuf = true
   out_winid = api.nvim_get_current_win()
   api.nvim_win_set_buf(out_winid, buf)
-  api.nvim_buf_set_option(buf, "modifiable", false)
+
+	local cfg = get_out_cfg()
+	local grp = (cfg.highlight or vim.g.jupyter_outbuf_hl or "JupyterOutput")
+	vim.wo[out_winid].winhighlight =
+		("Normal:%s,NormalNC:%s,EndOfBuffer:%s,SignColumn:%s,LineNr:%s,FoldColumn:%s,CursorLine:%s,CursorLineNr:%s")
+			:format(grp, grp, grp, grp, grp, grp, grp, grp)
+
+	-- guard against late overrides by other plugins
+	vim.schedule(function()
+		if vim.api.nvim_win_is_valid(out_winid) then
+			vim.wo[out_winid].winhighlight =
+				("Normal:%s,NormalNC:%s,EndOfBuffer:%s,SignColumn:%s,LineNr:%s,FoldColumn:%s,CursorLine:%s,CursorLineNr:%s")
+					:format(grp, grp, grp, grp, grp, grp, grp, grp)
+		end
+	end)
+
+  api.nvim_buf_set_option(buf, "modifiable", true)
+
   if cfg.focus_on_open ~= true and api.nvim_win_is_valid(prev) then
     api.nvim_set_current_win(prev)
   end
+  
+  -- Start the highlight maintenance timer when window opens
+  -- start_highlight_timer()
 end
+
+-- Function to ensure outbuf window always has correct highlight
+local function maintain_outbuf_highlight()
+  if out_bufnr and api.nvim_buf_is_valid(out_bufnr) then
+    for _, win in ipairs(api.nvim_list_wins()) do
+      if api.nvim_win_is_valid(win) and api.nvim_win_get_buf(win) == out_bufnr then
+        local cfg = get_out_cfg()
+        local grp = (cfg.highlight or vim.g.jupyter_outbuf_hl or "JupyterOutput")
+        vim.wo[win].winhighlight =
+          ("Normal:%s,NormalNC:%s,EndOfBuffer:%s,SignColumn:%s,LineNr:%s,FoldColumn:%s,CursorLine:%s,CursorLineNr:%s")
+          :format(grp, grp, grp, grp, grp, grp, grp, grp)
+        break
+      end
+    end
+  end
+end
+
+-- Start timer to maintain highlight
+-- local function start_highlight_timer()
+--   if highlight_timer then return end -- Already running
+--   highlight_timer = vim.loop.new_timer()
+--   if highlight_timer then
+--     highlight_timer:start(100, 500, vim.schedule_wrap(maintain_outbuf_highlight)) -- Check every 500ms
+--   end
+-- end
+--
+-- -- Stop the highlight maintenance timer
+-- local function stop_highlight_timer()
+--   if highlight_timer then
+--     highlight_timer:stop()
+--     highlight_timer:close()
+--     highlight_timer = nil
+--   end
+-- end
 
 local function scroll_to_bottom()
   local cfg = get_out_cfg()
-  if not cfg.autoscroll then return end
+  if not cfg.auto_scroll then return end
   if out_winid and api.nvim_win_is_valid(out_winid) and out_bufnr and api.nvim_buf_is_valid(out_bufnr) then
     local last = api.nvim_buf_line_count(out_bufnr)
     api.nvim_win_call(out_winid, function()
@@ -231,5 +319,68 @@ function M.append_markdown(seq, md)
   ensure_started(seq)
   append_lines({ "", s, "" })
 end
+
+
+-- ===== nvim-jupyter: clear virtlines + outbuf integration =====
+
+--- Clear inline virtual marks in the *current* source buffer.
+function M.clear_inline_current()
+  pcall(ui.clear_all, 0)
+end
+
+--- Clear both: outbuf + inline marks in current buffer.
+function M.clear_both()
+  -- clear outbuf text
+  pcall(M.clear)
+  -- clear inline marks in the current buffer (0)
+  pcall(ui.clear_all, 0)
+end
+
+-- Command(s)
+pcall(vim.api.nvim_create_user_command, "JupyterClearOut", function() M.clear() end,
+  { desc = "Clear Jupyter outbuf window" })
+
+pcall(vim.api.nvim_create_user_command, "JupyterClearBoth", function() M.clear_both() end,
+  { desc = "Clear Jupyter outbuf and inline virtual text (current buffer)" })
+
+-- Keymap for Python buffers: clear both with <leader>j0
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "python" },
+  callback = function(ev)
+    vim.keymap.set("n", "<leader>j0", function() M.clear_both() end,
+      { buffer = ev.buf, silent = true, desc = "Jupyter: clear outbuf + inline" })
+  end,
+})
+
+-- Reset outbuf automatically when user runs :JupyterStop (wrapper via cmdline abbrev)
+pcall(vim.api.nvim_create_user_command, "JupyterStopReset", function(opts)
+  -- Call the existing JupyterStop command (defined in jupyter.init) then clear outbuf.
+  local bang = opts.bang and "!" or ""
+  local args = opts.args or ""
+  -- Programmatic call avoids cmdline abbreviation loops.
+  pcall(vim.cmd, ("JupyterStop%s %s"):format(bang, args))
+  pcall(M.clear)
+end, { nargs = "*", bang = true, complete = "command" })
+
+-- Abbreviate typed :JupyterStop to our wrapper; keeps scripting untouched.
+vim.cmd([[
+  cnoreabbrev <expr> JupyterStop (getcmdtype() == ':' && getcmdline() =~# '^\s*JupyterStop\%($\|\s\)') ? 'JupyterStopReset' : 'JupyterStop'
+]])
+
+-- ===== end integration =====
+-- Hook kernel.stop() to clear outbuf afterwards (safe monkey-patch).
+vim.schedule(function()
+  local ok, kernel = pcall(require, "jupyter.kernel")
+  if ok and type(kernel) == "table" and type(kernel.stop) == "function" and not kernel._stop_wrapped then
+    local orig = kernel.stop
+    kernel.stop = function(...)
+      local ret = orig(...)
+      -- reset the outbuf so next session starts empty
+      pcall(M.clear)
+      return ret
+    end
+    kernel._stop_wrapped = true
+  end
+end)
 
 return M

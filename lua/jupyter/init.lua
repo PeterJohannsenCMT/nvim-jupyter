@@ -4,6 +4,17 @@ local ui  = require "jupyter.ui"
 local out    = require "jupyter.outbuf"
 local M      = {}
 
+vim.g.jupyter_outbuf_hl = "JupyterOutput"
+
+-- Define both GUI and cterm background so it works with/without termguicolors
+local function define_outbuf_hl()
+  vim.api.nvim_set_hl(0, "JupyterOutput", { bg = "#1e1e2e", ctermbg = 235 })
+end
+
+define_outbuf_hl()
+vim.api.nvim_create_autocmd("ColorScheme", {
+  callback = define_outbuf_hl,
+})
 ---------------------------------------------------------------------
 -- evaluate the current code block
 ---------------------------------------------------------------------
@@ -98,6 +109,27 @@ vim.api.nvim_create_autocmd("FileType", {
 		vim.keymap.set("n", "<leader>jc",  "<cmd>JupyterClearAll<CR>",    { buffer = buf, desc = "Jupyter: clear virtual text" })
 		vim.keymap.set("n", "<leader>ji",  "<cmd>JupyterInterrupt<CR>",    { buffer = buf, desc = "Jupyter: Interrupt" })
 	end,
+})
+
+vim.api.nvim_create_autocmd({ "BufWinEnter", "WinEnter" }, {
+  callback = function(ev)
+    if vim.b[ev.buf].is_outbuf then
+      local win = vim.api.nvim_get_current_win()
+      -- Use same config resolution as outbuf.lua
+      local function get_out_cfg()
+        local ok, cfg = pcall(require, "jupyter.config")
+        local defaults = { highlight = "JupyterOutput" }
+        local out_cfg = (ok and type(cfg) == "table" and cfg.out) or {}
+        local merged = {}; for k,v in pairs(defaults) do merged[k]=v end
+        for k,v in pairs(out_cfg or {}) do merged[k]=v end
+        return merged
+      end
+      local grp = (get_out_cfg().highlight or vim.g.jupyter_outbuf_hl or "JupyterOutput")
+      vim.wo[win].winhighlight =
+        ("Normal:%s,NormalNC:%s,EndOfBuffer:%s,SignColumn:%s,LineNr:%s,FoldColumn:%s,CursorLine:%s,CursorLineNr:%s")
+        :format(grp, grp, grp, grp, grp, grp, grp, grp)
+    end
+  end,
 })
 
 return M

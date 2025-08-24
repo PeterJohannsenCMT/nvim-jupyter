@@ -10,6 +10,7 @@ local M = {
 		open_on_run = true,       -- auto-open pane on first execution
 		auto_scroll = true,
 		focus_on_open = false,
+		highlight = vim.g.jupyter_outbuf_hl or "JupyterOutput"
 	},
 	interrupt = {
 		drop_queue = true,
@@ -19,7 +20,7 @@ local M = {
 	inline = {
 		strip_ansi = true,
 		maxlen     = 120,
-		prefix     = " ⇒ ",
+		prefix     = " ⇒  ",
 		hl_normal  = "JupyterInline",
 		hl_error   = "ErrorMsg",
 	},
