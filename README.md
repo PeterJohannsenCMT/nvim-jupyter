@@ -291,6 +291,7 @@ This plugin is provided as-is for personal use.
 - [iron.nvim](https://github.com/hkupty/iron.nvim) - Interactive REPL over Neovim
 - [vim-slime](https://github.com/jpalardy/vim-slime) - Send code to terminal/tmux
 - [baleia.nvim](https://github.com/m00qek/baleia.nvim) - ANSI color support (recommended companion)
+- [molten.nvim](https://github.com/benlubas/molten-nvim) - Interactive REPL over Neovim
 
 # Known Issues
 

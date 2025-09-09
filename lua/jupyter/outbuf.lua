@@ -170,13 +170,39 @@ end
 --   end
 -- end
 
+-- local function scroll_to_bottom()
+--   local cfg = get_out_cfg()
+--   if not cfg.auto_scroll then return end
+--   if out_winid and api.nvim_win_is_valid(out_winid) and out_bufnr and api.nvim_buf_is_valid(out_bufnr) then
+--     local last = api.nvim_buf_line_count(out_bufnr)
+--     api.nvim_win_call(out_winid, function()
+--       api.nvim_win_set_cursor(out_winid, { last, 0 })
+--     end)
+--   end
+-- end
+
+local OUT_PAD_NS = api.nvim_create_namespace('outbuf_pad')
+
 local function scroll_to_bottom()
   local cfg = get_out_cfg()
   if not cfg.auto_scroll then return end
   if out_winid and api.nvim_win_is_valid(out_winid) and out_bufnr and api.nvim_buf_is_valid(out_bufnr) then
+    -- clear any previous padding
+    api.nvim_buf_clear_namespace(out_bufnr, OUT_PAD_NS, 0, -1)
+
     local last = api.nvim_buf_line_count(out_bufnr)
+
+    -- add one virtual line *below* the last line
+    -- requires Neovim ≥ 0.9 (virt_lines)
+    api.nvim_buf_set_extmark(out_bufnr, OUT_PAD_NS, last - 1, 0, {
+      virt_lines = { { { " ", "Normal" } } },  -- one blank virtual line
+      virt_lines_above = false,                 -- place below the line
+    })
+
     api.nvim_win_call(out_winid, function()
       api.nvim_win_set_cursor(out_winid, { last, 0 })
+      -- optional: keep a bit of context too
+      -- vim.wo.scrolloff = math.max(vim.wo.scrolloff, 1)
     end)
   end
 end
