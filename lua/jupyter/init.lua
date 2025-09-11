@@ -132,4 +132,20 @@ vim.api.nvim_create_autocmd({ "BufWinEnter", "WinEnter" }, {
   end,
 })
 
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "python", "julia" },
+  callback = function(args)
+    vim.api.nvim_create_autocmd(
+      { "InsertEnter", "InsertLeave", "BufEnter", "TextChanged", "BufWinEnter" },
+      {
+        buffer = args.buf,
+        callback = function()
+					local p = require("jupyter.ui")
+          vim.schedule(p.highlight_cells)
+        end,
+      }
+    )
+  end,
+})
+
 return M

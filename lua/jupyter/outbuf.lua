@@ -54,7 +54,7 @@ local function ensure_buf()
 
 	api.nvim_buf_set_option(out_bufnr, "buftype", "nofile")
 	api.nvim_buf_set_option(out_bufnr, "bufhidden", "hide")
-	api.nvim_buf_set_option(out_bufnr, "filetype", "markdown")
+	api.nvim_buf_set_option(out_bufnr, "filetype", "python")
 	vim.b[out_bufnr].is_outbuf = true
 
   -- Set up autocmd to clean up references when buffer is deleted
@@ -90,7 +90,10 @@ local function ensure_buf()
           ("Normal:%s,NormalNC:%s,EndOfBuffer:%s,SignColumn:%s,LineNr:%s,FoldColumn:%s,CursorLine:%s,CursorLineNr:%s")
           :format(grp, grp, grp, grp, grp, grp, grp, grp)
       end
-    end,
+
+			local p = require"jupyter.ui"
+			vim.schedule(p.highlight_cells)
+    end
   })
 
   return out_bufnr
@@ -194,10 +197,10 @@ local function scroll_to_bottom()
 
     -- add one virtual line *below* the last line
     -- requires Neovim ≥ 0.9 (virt_lines)
-    api.nvim_buf_set_extmark(out_bufnr, OUT_PAD_NS, last - 1, 0, {
-      virt_lines = { { { " ", "Normal" } } },  -- one blank virtual line
-      virt_lines_above = false,                 -- place below the line
-    })
+    -- api.nvim_buf_set_extmark(out_bufnr, OUT_PAD_NS, last - 1, 0, {
+    --   virt_lines = { { { " ", "Normal" } } },  -- one blank virtual line
+    --   virt_lines_above = false,                 -- place below the line
+    -- })
 
     api.nvim_win_call(out_winid, function()
       api.nvim_win_set_cursor(out_winid, { last, 0 })
@@ -244,13 +247,13 @@ local function append_lines(lines)
   scroll_to_bottom()
 end
 
--- Lazy header: only print "## In [n]" when we actually have content to show
+-- Lazy header: only print "#%%" when we actually have content to show
 local function ensure_started(seq)
   local st = state[seq]
   if st and st.opened then return st end
   M.open()
   local buf = ensure_buf()
-  append_lines({("## In [%d]"):format(seq), ""})
+  append_lines({("#%%"), ""})
   st = st or {}
   st.opened = true
   st.row = api.nvim_buf_line_count(buf) - 1

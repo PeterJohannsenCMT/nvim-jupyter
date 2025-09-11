@@ -218,4 +218,71 @@ function M.clear_signs_range(bufnr, srow, erow)
   end
 end
 
+local ns_bg = vim.api.nvim_create_namespace("cell_line_background")
+local ns_sign = vim.api.nvim_create_namespace("cell_signs")
+local ns_linehl = vim.api.nvim_create_namespace("cell_line_highlight")
+
+
+local ns = vim.api.nvim_create_namespace('my-virt-lines')
+
+
+function M.highlight_cells()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local winid = vim.api.nvim_get_current_win()
+  local width = vim.api.nvim_win_get_width(winid)
+	vim.api.nvim_buf_clear_namespace(0, ns, 0, -1)
+  local cursor_line = vim.api.nvim_win_get_cursor(winid)[1] - 1
+  local in_insert_mode = vim.fn.mode() == "i"
+
+  vim.api.nvim_buf_clear_namespace(bufnr, ns_bg, 0, -1)
+  vim.api.nvim_buf_clear_namespace(bufnr, ns_sign, 0, -1)
+  vim.api.nvim_buf_clear_namespace(bufnr, ns_linehl, 0, -1)
+
+  local cell_count = 0
+
+	_G.CurrentCell = nil
+  for i = 0, vim.api.nvim_buf_line_count(bufnr) - 1 do
+    local line = vim.api.nvim_buf_get_lines(bufnr, i, i + 1, false)[1] or ""
+    local content = line:match("^#%%%%%s*(.*)$")
+
+    if content ~= nil then
+      cell_count = cell_count + 1
+
+			if i <= cursor_line then
+				_G.CurrentCell = i
+			end
+
+      -- skip overlay for current line *only in insert mode*
+      if not (in_insert_mode and i == cursor_line) then
+        local trimmed = vim.trim(content)
+        local label = string.format("In[%d]:", cell_count)
+        local full_display = trimmed == "" and label or (label .. " " .. trimmed)
+
+        local text_width = vim.fn.strdisplaywidth(full_display)
+        local padding_len = math.max(0, width - text_width)
+        local padding = string.rep(" ", padding_len)
+        local padding_top = string.rep("▀", width)
+        local padding_bottom = string.rep("▄", width)
+
+
+        vim.api.nvim_buf_set_extmark(bufnr, ns_sign, i, 0, {
+          virt_text = {
+            { full_display .. padding, "CellLineBackground" },
+          },
+          virt_text_pos = "overlay",
+          hl_mode = "combine",
+        })
+
+        vim.api.nvim_buf_add_highlight(bufnr, ns_linehl, "CellLineBackground", i, 0, -1)
+				vim.api.nvim_buf_set_extmark(0, ns, i, 0, {virt_lines = { { { padding_bottom, "CellLineBG" } }, }, virt_lines_above = true})
+
+				vim.api.nvim_buf_set_extmark(0, ns, i, 0, {virt_lines = { { { padding_top, "CellLineBG" } }, }, virt_lines_above = false})
+				vim.fn.sign_define("MySign", {text="󰘳", texthl="CellLineFG"})
+				vim.fn.sign_place(0, "group", "MySign", vim.fn.bufnr(), {lnum=i+1})
+      end
+    end
+  end
+	_G.CellCount = cell_count  -- define global variable
+end
+
 return M

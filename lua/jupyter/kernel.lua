@@ -117,14 +117,26 @@ local function ensure_bridge()
       -- mark seq as errored so 'done' won't place ✓
       had_error[s] = true
 
-      local bufnr = M.owner_buf or vim.api.nvim_get_current_buf()
-      local row   = pending_row[s]
-      if bufnr and row then
-        ui.place_sign("err", bufnr, row)
-        -- concise inline error (keep it visible after completion)
-        local inline = (msg.ename or "Error") .. (msg.evalue and (": " .. msg.evalue) or "")
-        ui.show_inline(bufnr, row, inline, { error = true })
-      end
+			local bufnr = M.owner_buf or vim.api.nvim_get_current_buf()
+			local row   = pending_row[s]
+			if bufnr and row then
+				ui.place_sign("err", bufnr, row)
+				-- concise inline error (keep it visible after completion)
+				local inline = (msg.ename or "Error") .. (msg.evalue and (": " .. msg.evalue) or "")
+				ui.show_inline(bufnr, row, inline, { error = true })
+				local ns = vim.api.nvim_create_namespace("jupyter_exec")
+				local line = vim.api.nvim_buf_get_lines(bufnr, row, row+1, false)[1]
+				local col  = #line
+				vim.diagnostic.set(ns, bufnr, {
+					{
+						lnum = row, col = col,
+						end_lnum = row, end_col = 0,
+						severity = vim.diagnostic.severity.ERROR,
+						message = "Jupyter Cell exited with error: ".. msg.ename,
+						source = "jupyter",
+					},
+				})
+			end
 
       -- advance queue
       inflight = false
