@@ -1,8 +1,10 @@
 local api = vim.api
 
 local M = {}
+local GROUP = "nvim-jupyter"
 
 local ns = api.nvim_create_namespace("nvim-jupyter-ui")
+local ns_exec = vim.api.nvim_create_namespace("jupyter_exec")
 M.ns = ns
 
 -- Per-buffer state
@@ -179,12 +181,13 @@ function M.place_sign(kind, bufnr, row)
   ensure_signs()
   local name = (kind == "run" and "JupyterRun") or (kind == "ok" and "JupyterOK") or "JupyterErr"
   local id = row + 1
-  pcall(vim.fn.sign_unplace, "nvim-jupyter", { buffer = bufnr, id = id })
-  pcall(vim.fn.sign_place, id, "nvim-jupyter", name, bufnr, { lnum = row + 1, priority = 10 })
+  pcall(vim.fn.sign_unplace, GROUP, { buffer = bufnr, id = id })
+  pcall(vim.fn.sign_place, id, GROUP, name, bufnr, { lnum = row + 1, priority = 10 })
 end
 
 function M.clear_signs(bufnr)
-  pcall(vim.fn.sign_unplace, "nvim-jupyter", { buffer = bufnr })
+  pcall(vim.fn.sign_unplace, GROUP, { buffer = bufnr })
+	vim.diagnostic.reset(ns_exec, bufnr)
 end
 
 -- Clear inline virtual text (our namespace) for a row range [srow, erow]
@@ -208,12 +211,12 @@ function M.clear_signs_range(bufnr, srow, erow)
   if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then return end
   if not (srow and erow) then return end
   if erow < srow then srow, erow = erow, srow end
-  local placed = vim.fn.sign_getplaced(bufnr, { group = "nvim-jupyter" }) or {}
+  local placed = vim.fn.sign_getplaced(bufnr, { group = GROUP}) or {}
   local items = placed[1] and placed[1].signs or {}
   for _, s in ipairs(items) do
     local r0 = (s.lnum or 1) - 1
     if r0 >= srow and r0 <= erow then
-      pcall(vim.fn.sign_unplace, "nvim-jupyter", { buffer = bufnr, id = s.id })
+      pcall(vim.fn.sign_unplace, GROUP, { buffer = bufnr, id = s.id })
     end
   end
 end
@@ -225,8 +228,18 @@ local ns_linehl = vim.api.nvim_create_namespace("cell_line_highlight")
 
 local ns = vim.api.nvim_create_namespace('my-virt-lines')
 
+local function replace_with_mysign(bufnr, lnum)
+  -- 1) remove ANY of {JupyterRun,JupyterOK,JupyterErr,MySign} on that line
+  --    (because they’re all in the same group)
+  pcall(vim.fn.sign_unplace, GROUP, { buffer = bufnr, lnum = lnum })
+
+  -- 2) place exactly one MySign with a stable id for this line
+  pcall(vim.fn.sign_place, lnum, GROUP, "MySign", bufnr, { lnum = lnum, priority = 10000 })
+end
 
 function M.highlight_cells()
+
+	pcall(vim.fn.sign_define, "MySign", { text = "●", texthl = "CellLineFG" })
   local bufnr = vim.api.nvim_get_current_buf()
   local winid = vim.api.nvim_get_current_win()
   local width = vim.api.nvim_win_get_width(winid)
@@ -275,10 +288,8 @@ function M.highlight_cells()
 
         vim.api.nvim_buf_add_highlight(bufnr, ns_linehl, "CellLineBackground", i, 0, -1)
 				vim.api.nvim_buf_set_extmark(0, ns, i, 0, {virt_lines = { { { padding_bottom, "CellLineBG" } }, }, virt_lines_above = true})
-
 				vim.api.nvim_buf_set_extmark(0, ns, i, 0, {virt_lines = { { { padding_top, "CellLineBG" } }, }, virt_lines_above = false})
-				vim.fn.sign_define("MySign", {text="󰘳", texthl="CellLineFG"})
-				vim.fn.sign_place(0, "group", "MySign", vim.fn.bufnr(), {lnum=i+1})
+
       end
     end
   end

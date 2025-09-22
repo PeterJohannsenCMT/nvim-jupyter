@@ -300,6 +300,7 @@ function M.eval_current_block()
   local code = table.concat(lines, "\n")
 	ui.clear_range(M.owner_buf, s, e+1)
 	ui.clear_signs_range(M.owner_buf, s, e+1)
+
   M.execute(code, e)  -- anchor at end row
 
 	local last_row0 = vim.api.nvim_buf_line_count(0)
