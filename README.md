@@ -74,13 +74,18 @@ require("jupyter").setup()
    ```python
    #%% Cell 1
    import numpy as np
+   import matplotlib as mpl
+   mpl.use("Qt5Agg")
    import matplotlib.pyplot as plt
-   
    #%% Cell 2
+   fig = plt.figure()
+   plt.show(block=False)
+   #%% Cell 2
+   plt.clf()
    x = np.linspace(0, 10, 100)
    y = np.sin(x)
    plt.plot(x, y)
-   plt.show()
+   plt.draw()
    
    #%% Cell 3
    print("Hello from Jupyter!")
