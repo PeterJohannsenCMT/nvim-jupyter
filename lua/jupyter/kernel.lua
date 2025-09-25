@@ -7,7 +7,7 @@ local M = { bridge = nil, owner_buf = nil }
 
 -- execution bookkeeping
 local seq          = 0
-local pending_row  = {}   -- seq -> source row (0-based)
+local pending      = {}   -- seq -> { row = last line (0-based), start_row = first line, bufnr = originating buffer }
 local queue        = {}   -- FIFO of {seq, code}
 local inflight     = false
 local ready        = false
@@ -49,6 +49,73 @@ local function find_bridge_script()
   return nil
 end
 
+local ANSI_ESCAPE = "\27%[[0-?]*[ -/]*[@-~]"
+
+local function compute_start_row(row, code)
+  if type(row) ~= "number" then return row end
+  if type(code) ~= "string" then return row end
+  local newline_count = 0
+  for _ in code:gmatch("\n") do newline_count = newline_count + 1 end
+  local start_row = row - newline_count
+  if start_row < 0 then start_row = 0 end
+  return start_row
+end
+
+local function extract_error_lineno(msg)
+  local tb = msg and msg.traceback
+  if not tb then return nil end
+
+  local lines = {}
+  if type(tb) == "table" then
+    for _, entry in ipairs(tb) do
+      if type(entry) == "string" then
+        local pieces = vim.split(entry, "\n", { trimempty = true })
+        for _, piece in ipairs(pieces) do
+          lines[#lines + 1] = piece
+        end
+      end
+    end
+  elseif type(tb) == "string" then
+    lines = vim.split(tb, "\n", { trimempty = true })
+  else
+    return nil
+  end
+
+  if #lines == 0 then return nil end
+
+  local preferred = { "Cell In%[", "<ipython%-input", "<stdin>", "<string>" }
+
+  local function clean_line(entry)
+    return entry:gsub(ANSI_ESCAPE, "")
+  end
+
+  local function match_lineno(entry)
+    local clean = clean_line(entry)
+    local lineno = clean:match("line%s+(%d+)")
+    if lineno then return tonumber(lineno) end
+    lineno = clean:match("^%s*[-=]+>%s*(%d+)")
+    if lineno then return tonumber(lineno) end
+    return nil
+  end
+
+  for _, pattern in ipairs(preferred) do
+    for i = #lines, 1, -1 do
+      local clean = clean_line(lines[i])
+      if clean:find(pattern) then
+        local lineno = clean:match("line%s+(%d+)")
+        if lineno then return tonumber(lineno) end
+      end
+    end
+  end
+
+  for i = #lines, 1, -1 do
+    local lineno = match_lineno(lines[i])
+    if lineno then return lineno end
+  end
+
+  return nil
+end
+
 local function ensure_bridge()
   if M.bridge then return true end
   local script = find_bridge_script()
@@ -80,8 +147,9 @@ local function ensure_bridge()
     elseif t == "stream" then
       local s = msg.seq
       out.append_stream(s, msg.text or "")
-      local bufnr = M.owner_buf or vim.api.nvim_get_current_buf()
-      local row   = pending_row[s]
+      local cell  = pending[s]
+      local bufnr = (cell and cell.bufnr) or M.owner_buf or vim.api.nvim_get_current_buf()
+      local row   = cell and cell.row
       if bufnr and row then
         ui.show_inline(bufnr, row, msg.text or "", { error = (msg.name == "stderr") })
       end
@@ -117,22 +185,39 @@ local function ensure_bridge()
       -- mark seq as errored so 'done' won't place ✓
       had_error[s] = true
 
-			local bufnr = M.owner_buf or vim.api.nvim_get_current_buf()
-			local row   = pending_row[s]
+			local cell  = pending[s]
+			local bufnr = (cell and cell.bufnr) or M.owner_buf or vim.api.nvim_get_current_buf()
+			local row   = cell and cell.row
 			if bufnr and row then
-				ui.place_sign("err", bufnr, row)
+				local diag_row = row
+				local err_line = extract_error_lineno(msg)
+				if err_line and err_line >= 1 and cell and cell.start_row then
+					diag_row = cell.start_row + err_line - 1
+				end
+				if cell and cell.start_row then
+					if diag_row < cell.start_row then diag_row = cell.start_row end
+					if diag_row > row then diag_row = row end
+				end
+				local line_count = vim.api.nvim_buf_line_count(bufnr)
+				if line_count > 0 then
+					if diag_row < 0 then diag_row = 0 end
+					if diag_row >= line_count then diag_row = line_count - 1 end
+				else
+					diag_row = 0
+				end
 				-- concise inline error (keep it visible after completion)
 				local inline = (msg.ename or "Error") .. (msg.evalue and (": " .. msg.evalue) or "")
-				ui.show_inline(bufnr, row, inline, { error = true })
+				ui.place_sign("err", bufnr, diag_row)
+				ui.show_inline(bufnr, diag_row, inline, { error = true })
 				local ns = vim.api.nvim_create_namespace("jupyter_exec")
-				local line = vim.api.nvim_buf_get_lines(bufnr, row, row+1, false)[1]
+				local line = vim.api.nvim_buf_get_lines(bufnr, diag_row, diag_row + 1, false)[1] or ""
 				local col  = #line
 				vim.diagnostic.set(ns, bufnr, {
 					{
-						lnum = row, col = col,
-						end_lnum = row, end_col = 0,
+						lnum = diag_row, col = col,
+						end_lnum = diag_row, end_col = 0,
 						severity = vim.diagnostic.severity.ERROR,
-						message = "Jupyter Cell exited with error: ".. msg.ename,
+						message = "Jupyter Cell exited with error: " .. msg.ename,
 						source = "jupyter",
 					},
 				})
@@ -149,8 +234,9 @@ local function ensure_bridge()
 
     elseif t == "done" then
       local s     = msg.seq
-      local bufnr = M.owner_buf or vim.api.nvim_get_current_buf()
-      local row   = pending_row[s]
+      local cell  = pending[s]
+      local bufnr = (cell and cell.bufnr) or M.owner_buf or vim.api.nvim_get_current_buf()
+      local row   = cell and cell.row
 
       if bufnr and row then
         if had_error[s] then
@@ -163,6 +249,8 @@ local function ensure_bridge()
         end
       end
 
+      pending[s] = nil
+
       inflight = false
       table.remove(queue, 1)
       if ready and #queue > 0 then
@@ -174,8 +262,9 @@ local function ensure_bridge()
     elseif t == "interrupted" then
       local head = queue[1]
       if head then
-        local bufnr = M.owner_buf or vim.api.nvim_get_current_buf()
-        local row   = pending_row[head.seq]
+        local cell  = pending[head.seq]
+        local bufnr = (cell and cell.bufnr) or M.owner_buf or vim.api.nvim_get_current_buf()
+        local row   = cell and cell.row
         if bufnr and row then ui.show_inline(bufnr, row, "[interrupt requested]", { error = true }) end
       end
       return
@@ -207,6 +296,7 @@ function M.stop()
   ready = false
   inflight = false
   queue = {}
+  pending = {}
   had_error = {}
 end
 
@@ -268,14 +358,17 @@ function M.execute(code, row)
 
   -- Remember owner buffer to place signs/inline correctly
   M.owner_buf = vim.api.nvim_get_current_buf()
+  local start_row = compute_start_row(row, code)
 
+  ui.clear_diagnostics_range(M.owner_buf, start_row, row)
   -- Clear inline at run start to avoid appending on re-run
   -- ui.clear_row(M.owner_buf, row)
   ui.place_sign("run", M.owner_buf, row)
 
   seq = seq + 1
-  pending_row[seq] = row
-  had_error[seq]   = nil
+  local bufnr = M.owner_buf
+  pending[seq] = { row = row, start_row = start_row, bufnr = bufnr }
+  had_error[seq] = nil
 
   out.start_cell(seq)  -- open output header now
 

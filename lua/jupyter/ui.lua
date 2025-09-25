@@ -190,6 +190,38 @@ function M.clear_signs(bufnr)
 	vim.diagnostic.reset(ns_exec, bufnr)
 end
 
+local function remove_diagnostics_in_range(bufnr, srow, erow)
+  if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then return end
+  srow = srow or 0
+  erow = erow or vim.api.nvim_buf_line_count(bufnr)
+  if erow < srow then srow, erow = erow, srow end
+
+  local existing = vim.diagnostic.get(bufnr, { namespace = ns_exec })
+  if not existing or vim.tbl_isempty(existing) then return end
+
+  local keep = {}
+  local changed = false
+  for _, diagnostic in ipairs(existing) do
+    local lnum = diagnostic.lnum or 0
+    if lnum >= srow and lnum <= erow then
+      changed = true
+    else
+      keep[#keep + 1] = diagnostic
+    end
+  end
+
+  if not changed then return end
+  if #keep == 0 then
+    vim.diagnostic.reset(ns_exec, bufnr)
+  else
+    vim.diagnostic.set(ns_exec, bufnr, keep)
+  end
+end
+
+function M.clear_diagnostics_range(bufnr, srow, erow)
+  remove_diagnostics_in_range(bufnr, srow, erow)
+end
+
 -- Clear inline virtual text (our namespace) for a row range [srow, erow]
 function M.clear_range(bufnr, srow, erow)
   if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then return end
@@ -219,6 +251,7 @@ function M.clear_signs_range(bufnr, srow, erow)
       pcall(vim.fn.sign_unplace, GROUP, { buffer = bufnr, id = s.id })
     end
   end
+  remove_diagnostics_in_range(bufnr, srow, erow)
 end
 
 local ns_bg = vim.api.nvim_create_namespace("cell_line_background")
