@@ -2,6 +2,7 @@
 local transport = require "jupyter.transport"
 local ui        = require "jupyter.ui"
 local out       = require "jupyter.outbuf"
+local throttle = require("jupyter.throttle")
 
 local M = { bridge = nil, owner_buf = nil }
 
@@ -12,6 +13,194 @@ local queue        = {}   -- FIFO of {seq, code}
 local inflight     = false
 local ready        = false
 local had_error    = {}   -- seq -> true if an error was seen before 'done'
+local stream_queue = {}
+local stream_flushing = false
+local last_handle_log = 0
+local handle_log_path = nil
+
+-- inline preview rate-limiter: collapse multiple updates per row into <= ~25 Hz
+local _inline_rl = {
+  entries = {},
+  pending = {},
+  timer = nil,
+  armed = false,
+}
+
+function _inline_rl:_ensure_timer()
+  local timer = self.timer
+  if timer and not timer:is_closing() then return timer end
+  local ok, new_timer = pcall(vim.loop.new_timer)
+  if not ok then return nil end
+  self.timer = new_timer
+  return new_timer
+end
+
+function _inline_rl:_dispatch(batch)
+  vim.schedule(function()
+    for key in pairs(batch) do
+      local ent = _inline_rl.entries[key]
+      if ent then
+        local bufnr, row = ent.bufnr, ent.row
+        if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
+          ui.show_inline(bufnr, row, ent.text or "", { error = ent.err })
+        end
+      end
+    end
+  end)
+end
+
+function _inline_rl:_arm()
+  if self.armed or not next(self.pending) then return end
+  local timer = self:_ensure_timer()
+  if not timer then return end
+  self.armed = true
+  timer:start(40, 0, function()
+    timer:stop()
+    self.armed = false
+    local batch = self.pending
+    self.pending = {}
+    if next(batch) then
+      self:_dispatch(batch)
+    end
+    if next(self.pending) then
+      self:_arm()
+    end
+  end)
+end
+
+function _inline_rl:push(bufnr, row, text, is_err)
+  if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then return end
+  local key = tostring(bufnr) .. ":" .. tostring(row)
+  local ent = self.entries[key]
+  if not ent then ent = {}; self.entries[key] = ent end
+  ent.bufnr, ent.row, ent.err = bufnr, row, is_err
+  ent.text = text
+  self.pending[key] = true
+  self:_arm()
+end
+
+function _inline_rl:reset()
+  self.entries = {}
+  self.pending = {}
+  if self.timer and not self.timer:is_closing() then
+    self.timer:stop()
+    self.timer:close()
+  end
+  self.timer = nil
+  self.armed = false
+end
+
+local function maybe_log_handles(tag, force)
+  if not vim.g.jupyter_debug_handles then return end
+  local now = vim.loop.now()
+  if not force and last_handle_log ~= 0 and (now - last_handle_log) < 500 then
+    return
+  end
+  last_handle_log = now
+
+  local counts = {}
+  local timer_samples = {}
+  local timer_seen = 0
+  vim.loop.walk(function(handle)
+    local typ_fn = handle and handle.get_type
+    local typ = "unknown"
+    if type(typ_fn) == "function" then
+      local ok, res = pcall(typ_fn, handle)
+      if ok and res then typ = res end
+    end
+    counts[typ] = (counts[typ] or 0) + 1
+    if typ == "timer" then
+      timer_seen = timer_seen + 1
+      if timer_seen <= 5 then
+        timer_samples[#timer_samples + 1] = tostring(handle)
+      end
+    end
+  end)
+
+  local parts = {}
+  for typ, count in pairs(counts) do
+    parts[#parts + 1] = string.format("%s=%d", typ, count)
+  end
+  table.sort(parts)
+
+  local fd_count = nil
+  local scan = vim.loop.fs_scandir and vim.loop.fs_scandir("/dev/fd")
+  if scan then
+    local c = 0
+    while true do
+      local name = vim.loop.fs_scandir_next(scan)
+      if not name then break end
+      c = c + 1
+    end
+    fd_count = c
+  end
+
+  if not handle_log_path then
+    local ok, path = pcall(function()
+      return vim.fn.stdpath("cache") .. "/nvim-jupyter-fd.log"
+    end)
+    handle_log_path = ok and path or nil
+  end
+
+  local detail = table.concat(parts, " ")
+  if fd_count then
+    detail = string.format("fd=%d %s", fd_count, detail)
+  end
+  if timer_seen > 0 and #timer_samples > 0 then
+    detail = detail .. " timer_samples=" .. table.concat(timer_samples, ",")
+  end
+  local line = string.format("%s %s %s", os.date("%H:%M:%S"), tag, detail)
+  if handle_log_path then
+    pcall(vim.fn.writefile, { line }, handle_log_path, "a")
+  end
+end
+
+local function flush_stream_queue()
+  if stream_flushing then return end
+  stream_flushing = true
+  while #stream_queue > 0 do
+    local queue_copy = stream_queue
+    stream_queue = {}
+
+    local merged = {}
+    for _, item in ipairs(queue_copy) do
+      local text = item.text
+      if text and text ~= "" then
+        local last = merged[#merged]
+        if last and last.seq == item.seq and last.name == item.name then
+          last.text = last.text .. text
+        else
+          merged[#merged + 1] = { seq = item.seq, name = item.name, text = text }
+        end
+      end
+    end
+
+    for _, entry in ipairs(merged) do
+      local text = entry.text
+      if text and text ~= "" then
+        maybe_log_handles(string.format("flush seq=%s len=%d", tostring(entry.seq), #text), false)
+        out.append_stream(entry.seq, text)
+        local cell  = pending[entry.seq]
+        local bufnr = (cell and cell.bufnr) or M.owner_buf or vim.api.nvim_get_current_buf()
+        local row   = cell and cell.row
+        if bufnr and row then
+          -- ui.show_inline(bufnr, row, text, { error = (entry.name == "stderr") })
+					_inline_rl:push(bufnr, row, text, (entry.name == "stderr"))
+        end
+      end
+    end
+  end
+  stream_flushing = false
+end
+
+local function enqueue_stream(seq, name, text)
+  if not seq or not text or text == "" then return end
+  stream_queue[#stream_queue + 1] = { seq = seq, name = name, text = text }
+  if vim.g.jupyter_debug_handles and (#stream_queue % 1000 == 0) then
+    maybe_log_handles(string.format("enqueue seq=%s name=%s size=%d", tostring(seq), tostring(name), #stream_queue), false)
+  end
+  flush_stream_queue()
+end
 
 local function get_cfg()
   local defaults = {
@@ -145,14 +334,7 @@ local function ensure_bridge()
       return
 
     elseif t == "stream" then
-      local s = msg.seq
-      out.append_stream(s, msg.text or "")
-      local cell  = pending[s]
-      local bufnr = (cell and cell.bufnr) or M.owner_buf or vim.api.nvim_get_current_buf()
-      local row   = cell and cell.row
-      if bufnr and row then
-        ui.show_inline(bufnr, row, msg.text or "", { error = (msg.name == "stderr") })
-      end
+      enqueue_stream(msg.seq, msg.name, msg.text or "")
       return
 
     elseif t == "stdin_request" then
@@ -290,6 +472,7 @@ end
 
 function M.stop()
   if not M.bridge then return end
+  flush_stream_queue()
   pcall(function() M.bridge:send({ type = "shutdown" }) end)
   if M.bridge.close then pcall(function() M.bridge:close() end) end
   M.bridge = nil
@@ -298,6 +481,7 @@ function M.stop()
   queue = {}
   pending = {}
   had_error = {}
+  _inline_rl:reset()
 end
 
 function M.interrupt(opts)
@@ -358,6 +542,9 @@ function M.execute(code, row)
 
   -- Remember owner buffer to place signs/inline correctly
   M.owner_buf = vim.api.nvim_get_current_buf()
+  if vim.g.jupyter_debug_handles then
+    maybe_log_handles("before-exec", true)
+  end
   local start_row = compute_start_row(row, code)
 
   ui.clear_diagnostics_range(M.owner_buf, start_row, row)

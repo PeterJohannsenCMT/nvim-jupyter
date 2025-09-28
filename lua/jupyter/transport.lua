@@ -38,6 +38,37 @@ local function make_bridge(stdin, stdout, stderr, handle)
   }
 
   local out_buf = ""
+  local pending_stdout, stdout_pending = {}, false
+  local stdout_timer
+  local process_stdout = vim.schedule_wrap(function()
+    while #pending_stdout > 0 do
+      local lines = pending_stdout
+      pending_stdout = {}
+      for _, line in ipairs(lines) do
+        local trimmed = line:match("^%s*(.-)%s*$")
+        if trimmed ~= "" and trimmed:sub(1,1) == "{" then
+          local obj, dec_err = json_decode(trimmed)
+          if obj and bridge._cb then
+            bridge._cb(obj)
+          elseif dec_err then
+            vim.notify("nvim-jupyter: JSON decode failed: " .. tostring(dec_err) ..
+              "\nline: " .. trimmed, vim.log.levels.WARN)
+          end
+        elseif trimmed ~= "" then
+          vim.notify("[nvim-jupyter] bridge noise: " .. trimmed, vim.log.levels.INFO)
+        end
+      end
+    end
+    stdout_pending = false
+  end)
+
+  local function ensure_stdout_timer()
+    if stdout_timer and not stdout_timer:is_closing() then return stdout_timer end
+    local ok, timer = pcall(vim.loop.new_timer)
+    if ok and timer then stdout_timer = timer end
+    return stdout_timer
+  end
+
   uv.read_start(stdout, function(err, chunk)
     if err then
       vim.schedule(function()
@@ -52,22 +83,41 @@ local function make_bridge(stdin, stdout, stderr, handle)
       if not nl then break end
       local line = out_buf:sub(1, nl - 1)
       out_buf = out_buf:sub(nl + 1)
-      vim.schedule(function()
-        local trimmed = line:match("^%s*(.-)%s*$")
-        if trimmed ~= "" and trimmed:sub(1,1) == "{" then
-          local obj, dec_err = json_decode(trimmed)
-          if obj and bridge._cb then
-            bridge._cb(obj)
-          elseif dec_err then
-            vim.notify("nvim-jupyter: JSON decode failed: " .. tostring(dec_err) ..
-              "\nline: " .. trimmed, vim.log.levels.WARN)
-          end
-        elseif trimmed ~= "" then
-          vim.notify("[nvim-jupyter] bridge noise: " .. trimmed, vim.log.levels.INFO)
-        end
-      end)
+      pending_stdout[#pending_stdout + 1] = line
+    end
+    if #pending_stdout > 0 and not stdout_pending then
+      stdout_pending = true
+      local timer = ensure_stdout_timer()
+      if timer then
+        timer:start(0, 0, function()
+          timer:stop()
+          process_stdout()
+        end)
+      else
+        process_stdout()
+      end
     end
   end)
+
+  local pending_stderr, stderr_pending = {}, false
+  local stderr_timer
+  local process_stderr = vim.schedule_wrap(function()
+    while #pending_stderr > 0 do
+      local lines = pending_stderr
+      pending_stderr = {}
+      for _, msg in ipairs(lines) do
+        vim.notify("[nvim-jupyter] bridge stderr: " .. msg, vim.log.levels.INFO)
+      end
+    end
+    stderr_pending = false
+  end)
+
+  local function ensure_stderr_timer()
+    if stderr_timer and not stderr_timer:is_closing() then return stderr_timer end
+    local ok, timer = pcall(vim.loop.new_timer)
+    if ok and timer then stderr_timer = timer end
+    return stderr_timer
+  end
 
   uv.read_start(stderr, function(err, chunk)
     if err then
@@ -77,10 +127,19 @@ local function make_bridge(stdin, stdout, stderr, handle)
       return
     end
     if not chunk then return end
-    local msg = chunk
-    vim.schedule(function()
-      vim.notify("[nvim-jupyter] bridge stderr: " .. msg, vim.log.levels.INFO)
-    end)
+    pending_stderr[#pending_stderr + 1] = chunk
+    if not stderr_pending then
+      stderr_pending = true
+      local timer = ensure_stderr_timer()
+      if timer then
+        timer:start(0, 0, function()
+          timer:stop()
+          process_stderr()
+        end)
+      else
+        process_stderr()
+      end
+    end
   end)
 
   function bridge:send(msg)
@@ -97,6 +156,8 @@ local function make_bridge(stdin, stdout, stderr, handle)
     if self._stdout and not self._stdout:is_closing() then self._stdout:close() end
     if self._stderr and not self._stderr:is_closing() then self._stderr:close() end
     if self._handle and not self._handle:is_closing() then self._handle:kill("sigterm") end
+    if stdout_timer and not stdout_timer:is_closing() then stdout_timer:stop(); stdout_timer:close() end
+    if stderr_timer and not stderr_timer:is_closing() then stderr_timer:stop(); stderr_timer:close() end
   end
 
   return bridge
