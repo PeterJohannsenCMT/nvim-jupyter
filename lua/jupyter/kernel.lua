@@ -179,14 +179,15 @@ local function flush_stream_queue()
       local text = entry.text
       if text and text ~= "" then
         maybe_log_handles(string.format("flush seq=%s len=%d", tostring(entry.seq), #text), false)
-        out.append_stream(entry.seq, text)
-        local cell  = pending[entry.seq]
-        local bufnr = (cell and cell.bufnr) or M.owner_buf or vim.api.nvim_get_current_buf()
-        local row   = cell and cell.row
-        if bufnr and row then
-          -- ui.show_inline(bufnr, row, text, { error = (entry.name == "stderr") })
-					_inline_rl:push(bufnr, row, text, (entry.name == "stderr"))
-        end
+        local is_error = (entry.name == "stderr")
+        out.append_stream(entry.seq, text, is_error)
+        -- DISABLED: inline updates during rapid output can cause EMFILE
+        -- local cell  = pending[entry.seq]
+        -- local bufnr = (cell and cell.bufnr) or M.owner_buf or vim.api.nvim_get_current_buf()
+        -- local row   = cell and cell.row
+        -- if bufnr and row then
+        --   _inline_rl:push(bufnr, row, text, is_error)
+        -- end
       end
     end
   end
@@ -362,7 +363,7 @@ local function ensure_bridge()
     elseif t == "error" then
       local s  = msg.seq
       local tb = msg.traceback or ((msg.ename or "Error") .. ": " .. (msg.evalue or ""))
-      out.append(s, tb)
+      out.append(s, tb, true)  -- Mark traceback as error for colored output
 
       -- mark seq as errored so 'done' won't place ✓
       had_error[s] = true
@@ -452,6 +453,9 @@ local function ensure_bridge()
       return
 
     elseif t == "bye" then
+      if M.bridge and M.bridge.close then
+        pcall(function() M.bridge:close() end)
+      end
       M.bridge = nil; ready = false; inflight = false; queue = {}
       return
     end
@@ -482,6 +486,11 @@ function M.stop()
   pending = {}
   had_error = {}
   _inline_rl:reset()
+  -- Clean up throttle timers if throttle module is loaded
+  local ok, throttle = pcall(require, "jupyter.throttle")
+  if ok and throttle and type(throttle.stop) == "function" then
+    pcall(throttle.stop)
+  end
 end
 
 function M.interrupt(opts)

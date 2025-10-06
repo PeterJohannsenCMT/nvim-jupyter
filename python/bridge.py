@@ -5,6 +5,7 @@ Adds stdin support: forwards input_request -> Neovim and accepts stdin_reply.
 """
 import base64, json, os, select, signal, sys, tempfile, traceback
 from collections import deque
+from jupyter_client import KernelManager
 
 # ---- unbuffered, consistent IO ----
 try:
@@ -13,16 +14,21 @@ try:
 except Exception:
     pass
 
-from jupyter_client import KernelManager
-
 km = None
 kc = None
 _current = None            # {"seq": int, "msg_id": str}
 _queue = deque()
+_outbox = []               # batched messages
 
 def send(obj):
-    sys.stdout.write(json.dumps(obj) + "\n")
-    sys.stdout.flush()
+    _outbox.append(obj)
+
+def flush_outbox():
+    global _outbox
+    if _outbox:
+        sys.stdout.write("\n".join(json.dumps(x) for x in _outbox) + "\n")
+        sys.stdout.flush()
+        _outbox.clear()
 
 def _b64_to_file(payload_b64, suffix):
     fd, path = tempfile.mkstemp(suffix=suffix); os.close(fd)
@@ -60,7 +66,6 @@ def _start_kernel(kernel, cwd):
         try: os.chdir(cwd)
         except Exception: pass
     km = KernelManager(kernel_name=(kernel or "python3"))
-    import os
     extra_env = os.environ.copy()
     extra_env["PATH"] = "/Library/TeX/texbin:" + extra_env.get("PATH", "")
     km.start_kernel(env = extra_env)
@@ -171,7 +176,6 @@ def _maybe_start_next():
     if _current or not _queue or not _kernel_ready():
         return
     seq, code = _queue.popleft()
-    # allow stdin so click/input() works
     msg_id = kc.execute(code, store_history=True, allow_stdin=True)
     _current = {"seq": seq, "msg_id": msg_id}
 
@@ -184,7 +188,6 @@ def _handle_command(req):
         elif typ == "execute":
             _queue.append((req["seq"], req["code"]))
         elif typ == "stdin_reply":
-            # reply to the most recent input_request
             kc.input(req.get("text", ""))
         elif typ == "interrupt":
             send({"type": "interrupted"})
@@ -227,10 +230,12 @@ def main():
                               "traceback": traceback.format_exc()})
                         continue
                     if not _handle_command(req):
+                        flush_outbox()
                         return
         _maybe_start_next()
         _drain_iopub_once()
         _drain_stdin_once()
+        flush_outbox()
 
 if __name__ == "__main__":
     try:

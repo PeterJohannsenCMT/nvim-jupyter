@@ -23,22 +23,51 @@ local out_bufnr, out_winid = nil, nil
 -- state[seq] = { opened = bool, row = int|nil, line = string }
 local state = {}
 
+-- Baleia for ANSI color rendering (only used for errors)
+local baleia = nil
 local function get_baleia()
-  local ok, inst = pcall(function() return vim.g.baleia end)
-  if ok and inst then return inst end
-  local ok2, mod = pcall(require, "baleia")
-  if ok2 then
-    local b = mod.setup({})
-    vim.g.baleia = vim.g.baleia or b
-    return b
+  if baleia then return baleia end
+  local ok, b = pcall(require, "baleia")
+  if ok then
+    baleia = b.setup({ line_starts_at = 1 })
   end
-  return nil
+  return baleia
 end
 
-local function set_lines_colored(buf, s, e, lines)
-  local baleia = get_baleia()
-  if baleia then baleia.buf_set_lines(buf, s, e, false, lines)
-  else api.nvim_buf_set_lines(buf, s, e, false, lines) end
+-- ANSI escape sequence patterns - strip all ANSI codes
+local ANSI_CSI = "\27%[[0-?]*[ -/]*[@-~]"  -- CSI sequences
+local ANSI_OSC = "\27%].-\7"                -- OSC sequences
+
+local function strip_ansi(text)
+  if not text then return "" end
+  local cleaned = tostring(text)
+  cleaned = cleaned:gsub(ANSI_CSI, "")  -- Remove CSI sequences
+  cleaned = cleaned:gsub(ANSI_OSC, "")  -- Remove OSC sequences
+  return cleaned
+end
+
+local function set_lines_colored(buf, s, e, lines, is_error)
+  if is_error then
+    -- Use baleia for error messages (infrequent, safe)
+    local b = get_baleia()
+    if b then
+      -- baleia.buf_set_lines sets the lines AND applies colors
+      local ok, err = pcall(function()
+        b.buf_set_lines(buf, s, e, false, lines)
+      end)
+      if ok then
+        return
+      end
+      -- Fallback if baleia fails (fall through to strip)
+    end
+  end
+
+  -- For normal output: strip all ANSI codes
+  local stripped = {}
+  for i, line in ipairs(lines) do
+    stripped[i] = strip_ansi(line)
+  end
+  api.nvim_buf_set_lines(buf, s, e, false, stripped)
 end
 
 local function ensure_buf()
@@ -186,28 +215,41 @@ end
 
 local OUT_PAD_NS = api.nvim_create_namespace('outbuf_pad')
 
+-- Throttle scrolling to prevent EMFILE during rapid output
+local last_scroll = 0
+local SCROLL_THROTTLE_MS = 100  -- Max 10 scrolls per second
+
 local function scroll_to_bottom()
   local cfg = get_out_cfg()
   if not cfg.auto_scroll then return end
-  if out_winid and api.nvim_win_is_valid(out_winid) and out_bufnr and api.nvim_buf_is_valid(out_bufnr) then
-    -- clear any previous padding
-    api.nvim_buf_clear_namespace(out_bufnr, OUT_PAD_NS, 0, -1)
-
-    local last = api.nvim_buf_line_count(out_bufnr)
-
-    -- add one virtual line *below* the last line
-    -- requires Neovim ≥ 0.9 (virt_lines)
-    -- api.nvim_buf_set_extmark(out_bufnr, OUT_PAD_NS, last - 1, 0, {
-    --   virt_lines = { { { " ", "Normal" } } },  -- one blank virtual line
-    --   virt_lines_above = false,                 -- place below the line
-    -- })
-
-    api.nvim_win_call(out_winid, function()
-      api.nvim_win_set_cursor(out_winid, { last, 0 })
-      -- optional: keep a bit of context too
-      -- vim.wo.scrolloff = math.max(vim.wo.scrolloff, 1)
-    end)
+  if not (out_winid and api.nvim_win_is_valid(out_winid) and out_bufnr and api.nvim_buf_is_valid(out_bufnr)) then
+    return
   end
+
+  -- Throttle: only scroll every 100ms
+  local now = vim.loop.now()
+  if now - last_scroll < SCROLL_THROTTLE_MS then
+    return
+  end
+  last_scroll = now
+
+  -- clear any previous padding
+  api.nvim_buf_clear_namespace(out_bufnr, OUT_PAD_NS, 0, -1)
+
+  local last = api.nvim_buf_line_count(out_bufnr)
+
+  -- add one virtual line *below* the last line
+  -- requires Neovim ≥ 0.9 (virt_lines)
+  -- api.nvim_buf_set_extmark(out_bufnr, OUT_PAD_NS, last - 1, 0, {
+  --   virt_lines = { { { " ", "Normal" } } },  -- one blank virtual line
+  --   virt_lines_above = false,                 -- place below the line
+  -- })
+
+  api.nvim_win_call(out_winid, function()
+    api.nvim_win_set_cursor(out_winid, { last, 0 })
+    -- optional: keep a bit of context too
+    -- vim.wo.scrolloff = math.max(vim.wo.scrolloff, 1)
+  end)
 end
 
 function M.is_visible() return out_winid and api.nvim_win_is_valid(out_winid) end
@@ -224,13 +266,15 @@ end
 function M.clear()
   local buf = ensure_buf()
   api.nvim_buf_set_option(buf, "modifiable", true)
-  set_lines_colored(buf, 0, -1, {})
+  set_lines_colored(buf, 0, -1, {}, false)
   api.nvim_buf_set_option(buf, "modifiable", false)
   state = {}
+  -- Clear any pending buffer updates
+  pending_buffer_updates = {}
   scroll_to_bottom()
 end
 
-local function append_lines(lines)
+local function append_lines(lines, is_error)
   local buf  = ensure_buf()
   local last = api.nvim_buf_line_count(buf)
   local last_line = api.nvim_buf_get_lines(buf, last - 1, last, false)[1]
@@ -238,10 +282,10 @@ local function append_lines(lines)
   api.nvim_buf_set_option(buf, "modifiable", true)
   if last == 1 and (last_line == nil or last_line == "") then
     -- Buffer is "empty": replace that first blank line
-    set_lines_colored(buf, 0, 1, lines)
+    set_lines_colored(buf, 0, 1, lines, is_error)
   else
     -- Real content exists: append after last line
-    set_lines_colored(buf, last, last, lines)
+    set_lines_colored(buf, last, last, lines, is_error)
   end
   api.nvim_buf_set_option(buf, "modifiable", false)
   scroll_to_bottom()
@@ -280,8 +324,71 @@ local function is_effectively_empty(s)
   return s:match("^%s*$") ~= nil
 end
 
+-- Batch buffer updates to prevent EMFILE
+local pending_buffer_updates = {}
+local buffer_flush_timer = vim.loop.new_timer()
+local BUFFER_FLUSH_MS = 50  -- Flush every 50ms max
+
+local function flush_buffer_updates()
+  if #pending_buffer_updates == 0 then return end
+
+  local updates = pending_buffer_updates
+  pending_buffer_updates = {}
+
+  vim.schedule(function()
+    -- Group by sequence
+    local by_seq = {}
+    for _, update in ipairs(updates) do
+      if not by_seq[update.seq] then by_seq[update.seq] = {} end
+      table.insert(by_seq[update.seq], update)
+    end
+
+    -- Apply all updates in ONE batch write per sequence
+    for seq, seq_updates in pairs(by_seq) do
+      local st = ensure_started(seq)
+      local buf = ensure_buf()
+
+      -- Collect all lines to write in a single batch
+      local all_lines = {}
+      local last_was_progress = false
+      local has_error = false  -- Track if any line in this batch is an error
+
+      for _, update in ipairs(seq_updates) do
+        if update.is_error then has_error = true end
+        if update.type == "line" then
+          table.insert(all_lines, update.text)
+          last_was_progress = false
+        elseif update.type == "progress" then
+          -- Progress updates overwrite the current line
+          if last_was_progress and #all_lines > 0 then
+            all_lines[#all_lines] = update.text  -- Replace last line
+          else
+            table.insert(all_lines, update.text)
+          end
+          last_was_progress = true
+          st.line = update.text
+        end
+      end
+
+      -- Write ALL lines in ONE call (insert at current position)
+      if #all_lines > 0 then
+        api.nvim_buf_set_option(buf, "modifiable", true)
+        -- Insert all lines at position st.row (use baleia only for errors)
+        set_lines_colored(buf, st.row, st.row, all_lines, has_error)
+        st.row = st.row + #all_lines - 1  -- Point to last inserted line
+        api.nvim_buf_set_option(buf, "modifiable", false)
+      end
+    end
+
+    scroll_to_bottom()
+  end)
+end
+
+-- Start the repeating timer
+buffer_flush_timer:start(BUFFER_FLUSH_MS, BUFFER_FLUSH_MS, flush_buffer_updates)
+
 -- batched streaming with \r support; only append non-empty visible content
-function M.append_stream(seq, text)
+function M.append_stream(seq, text, is_error)
   if not text or text == "" then return end
 
   local s = tostring(text):gsub("\r\n", "\n")
@@ -295,22 +402,13 @@ function M.append_stream(seq, text)
     table.insert(segs, s:sub(i, j - 1)); i = j + 1
   end
 
-  local wrote_any = false
-
   -- completed lines (only when non-empty after CR/ANSI stripping)
   local last_idx = trailing_nl and #segs or (#segs - 1)
   for k = 1, math.max(0, last_idx) do
     local seg = segs[k]
     local vis = seg:match("[^\r]*$") or seg
     if not is_effectively_empty(vis) then
-      local st = ensure_started(seq)
-      local buf = ensure_buf()
-      api.nvim_buf_set_option(buf, "modifiable", true)
-      set_lines_colored(buf, st.row, st.row + 1, { vis })
-      set_lines_colored(buf, st.row + 1, st.row + 1, { "" })
-      api.nvim_buf_set_option(buf, "modifiable", false)
-      st.row, st.line = st.row + 1, ""
-      wrote_any = true
+      table.insert(pending_buffer_updates, { seq = seq, type = "line", text = vis, is_error = is_error })
     end
   end
 
@@ -318,28 +416,20 @@ function M.append_stream(seq, text)
   if not trailing_nl then
     local final = (segs[#segs] or ""):match("[^\r]*$") or ""
     if not is_effectively_empty(final) then
-      local st = ensure_started(seq)
-      local buf = ensure_buf()
-      if final ~= st.line then
-        api.nvim_buf_set_option(buf, "modifiable", true)
-        set_lines_colored(buf, st.row, st.row + 1, { final })
-        api.nvim_buf_set_option(buf, "modifiable", false)
-        st.line = final
-        wrote_any = true
-      end
+      table.insert(pending_buffer_updates, { seq = seq, type = "progress", text = final, is_error = is_error })
     end
   end
 
-  if wrote_any then scroll_to_bottom() end
+  -- Updates will be flushed by the repeating timer (every 50ms)
 end
 
-function M.append(seq, text)
+function M.append(seq, text, is_error)
   local s = tostring(text or "")
   if s == "" or s:match("^%s*$") then return end
   ensure_started(seq)
   local lines = {}
   for line in (s .. "\n"):gmatch("([^\n]*)\n") do table.insert(lines, line) end
-  if #lines > 0 then append_lines(lines) end
+  if #lines > 0 then append_lines(lines, is_error) end
 end
 
 function M.append_markdown(seq, md)
