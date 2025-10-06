@@ -219,19 +219,21 @@ local OUT_PAD_NS = api.nvim_create_namespace('outbuf_pad')
 local last_scroll = 0
 local SCROLL_THROTTLE_MS = 100  -- Max 10 scrolls per second
 
-local function scroll_to_bottom()
+local function scroll_to_bottom(force)
   local cfg = get_out_cfg()
   if not cfg.auto_scroll then return end
   if not (out_winid and api.nvim_win_is_valid(out_winid) and out_bufnr and api.nvim_buf_is_valid(out_bufnr)) then
     return
   end
 
-  -- Throttle: only scroll every 100ms
-  local now = vim.loop.now()
-  if now - last_scroll < SCROLL_THROTTLE_MS then
-    return
+  -- Throttle: only scroll every 100ms (unless forced)
+  if not force then
+    local now = vim.loop.now()
+    if now - last_scroll < SCROLL_THROTTLE_MS then
+      return
+    end
+    last_scroll = now
   end
-  last_scroll = now
 
   -- clear any previous padding
   api.nvim_buf_clear_namespace(out_bufnr, OUT_PAD_NS, 0, -1)
@@ -288,7 +290,7 @@ local function append_lines(lines, is_error)
     set_lines_colored(buf, last, last, lines, is_error)
   end
   api.nvim_buf_set_option(buf, "modifiable", false)
-  scroll_to_bottom()
+  scroll_to_bottom(is_error)  -- Force scroll on errors
 end
 
 -- Lazy header: only print "#%%" when we actually have content to show
@@ -352,30 +354,47 @@ local function flush_buffer_updates()
       local all_lines = {}
       local last_was_progress = false
       local has_error = false  -- Track if any line in this batch is an error
+      local has_any_lines = false  -- Track if we have complete lines (not just progress)
 
       for _, update in ipairs(seq_updates) do
         if update.is_error then has_error = true end
         if update.type == "line" then
           table.insert(all_lines, update.text)
           last_was_progress = false
+          has_any_lines = true
         elseif update.type == "progress" then
           -- Progress updates overwrite the current line
           if last_was_progress and #all_lines > 0 then
-            all_lines[#all_lines] = update.text  -- Replace last line
+            all_lines[#all_lines] = update.text  -- Replace last line in batch
           else
             table.insert(all_lines, update.text)
           end
           last_was_progress = true
-          st.line = update.text
         end
       end
 
-      -- Write ALL lines in ONE call (insert at current position)
+      -- Write ALL lines in ONE call
       if #all_lines > 0 then
         api.nvim_buf_set_option(buf, "modifiable", true)
-        -- Insert all lines at position st.row (use baleia only for errors)
-        set_lines_colored(buf, st.row, st.row, all_lines, has_error)
-        st.row = st.row + #all_lines - 1  -- Point to last inserted line
+
+        local start_pos = st.row
+        local end_pos = st.row
+
+        -- If we have a previous progress line in the buffer, replace it
+        if st.line and st.line ~= "" then
+          end_pos = st.row + 1
+        end
+
+        set_lines_colored(buf, start_pos, end_pos, all_lines, has_error)
+        st.row = start_pos + #all_lines - 1
+
+        -- Update st.line: only keep it if we ended with a progress update
+        if last_was_progress then
+          st.line = all_lines[#all_lines]
+        else
+          st.line = ""
+        end
+
         api.nvim_buf_set_option(buf, "modifiable", false)
       end
     end
