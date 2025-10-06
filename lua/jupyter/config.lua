@@ -10,7 +10,7 @@ local M = {
 		open_on_run = true,       -- auto-open pane on first execution
 		auto_scroll = true,
 		focus_on_open = false,
-		highlight = vim.g.jupyter_outbuf_hl or "JupyterOutput"
+		highlight = vim.g.jupyter_outbuf_hl or "JupyterOutput",
 	},
 	interrupt = {
 		drop_queue = true,

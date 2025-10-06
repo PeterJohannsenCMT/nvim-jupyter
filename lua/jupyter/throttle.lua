@@ -18,7 +18,7 @@ M.append = nil   ---@type fun(seq:integer,text:string)|nil
 ---------------------------------------------------------------------------
 local bulk, pending, n_pending = false, {}, 0
 local per_sec, last_sec        = 0, uv.now()
-local flush_timer, rate_timer  = uv.new_timer(), uv.new_timer()
+local flush_timer, rate_timer  = nil, nil
 
 ---------------------------------------------------------------------------
 local function flush()
@@ -32,21 +32,35 @@ local function flush()
   end)
 end
 
-flush_timer:start(FLUSH_MS, FLUSH_MS, flush)
-
-rate_timer:start(100, 100, function()
-  local now = uv.now()
-  if now - last_sec >= 1000 then
-    bulk, per_sec, last_sec = (per_sec >= HIGH_WATER), 0, now
+local function ensure_timers()
+  if not flush_timer or flush_timer:is_closing() then
+    flush_timer = uv.new_timer()
+    flush_timer:start(FLUSH_MS, FLUSH_MS, flush)
   end
-end)
+  if not rate_timer or rate_timer:is_closing() then
+    rate_timer = uv.new_timer()
+    rate_timer:start(100, 100, function()
+      local now = uv.now()
+      if now - last_sec >= 1000 then
+        bulk, per_sec, last_sec = (per_sec >= HIGH_WATER), 0, now
+      end
+    end)
+  end
+end
+
+-- Initialize timers
+ensure_timers()
 
 ---------------------------------------------------------------------------
-function M.tick() per_sec = per_sec + 1 end
+function M.tick()
+  ensure_timers()
+  per_sec = per_sec + 1
+end
 
 ---@param seq  integer
 ---@param text string
 function M.push(seq, text)
+  ensure_timers()
   if not bulk or not M.append then       -- normal path
     if M.append then M.append(seq, text) end
     return
@@ -54,6 +68,20 @@ function M.push(seq, text)
   pending[#pending + 1] = { seq = seq, text = text }
   n_pending = n_pending + 1
   if n_pending >= FLUSH_LINES then flush() end
+end
+
+-- Cleanup function to stop timers when needed
+function M.stop()
+  if flush_timer and not flush_timer:is_closing() then
+    flush_timer:stop()
+    flush_timer:close()
+    flush_timer = nil
+  end
+  if rate_timer and not rate_timer:is_closing() then
+    rate_timer:stop()
+    rate_timer:close()
+    rate_timer = nil
+  end
 end
 
 return M
