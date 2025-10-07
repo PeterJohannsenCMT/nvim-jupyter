@@ -53,7 +53,93 @@ function M.setup(opts)
   if opts.out and type(cfg.out) == "table" then
     for k, v in pairs(opts.out) do cfg.out[k] = v end
   end
+  if opts.ui then
+    if not cfg.ui then cfg.ui = {} end
+    for k, v in pairs(opts.ui) do cfg.ui[k] = v end
+  end
+  if opts.fold then
+    if not cfg.fold then cfg.fold = {} end
+    for k, v in pairs(opts.fold) do cfg.fold[k] = v end
+  end
 end
+
+---------------------------------------------------------------------
+-- folding support for #%% cell markers + treesitter
+---------------------------------------------------------------------
+local has_cell_markers_cache = {}
+
+local function buffer_has_cell_markers(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+
+  -- Check cache
+  if has_cell_markers_cache[bufnr] ~= nil then
+    return has_cell_markers_cache[bufnr]
+  end
+
+  -- Search for cell markers in buffer
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  for _, line in ipairs(lines) do
+    if line:match("^#%%") then
+      has_cell_markers_cache[bufnr] = true
+      return true
+    end
+  end
+
+  has_cell_markers_cache[bufnr] = false
+  return false
+end
+
+function M.fold_expr()
+  local lnum = vim.v.lnum
+  local line = vim.fn.getline(lnum)
+  local bufnr = vim.api.nvim_get_current_buf()
+
+  -- Check if buffer has cell markers
+  local has_cells = buffer_has_cell_markers(bufnr)
+
+  if has_cells then
+    -- Hybrid mode: cell markers + treesitter
+    if line:match("^#%%") then
+      return ">1"  -- Start a level 1 fold for the cell
+    end
+
+    -- Get treesitter fold level and increment it to nest within cells
+    local ok, ts_result = pcall(vim.treesitter.foldexpr, lnum)
+    if ok and ts_result and ts_result ~= "0" then
+      -- Parse the treesitter result and increment fold level
+      if type(ts_result) == "string" then
+        if ts_result:match("^>") then
+          local level = tonumber(ts_result:sub(2))
+          return ">" .. (level + 1)
+        elseif ts_result == "=" then
+          return "="
+        else
+          local level = tonumber(ts_result)
+          if level and level > 0 then
+            return tostring(level + 1)
+          end
+        end
+      end
+    end
+
+    -- Continue at same level within cell
+    return "="
+  else
+    -- No cell markers: use pure treesitter folding
+    local ok, ts_result = pcall(vim.treesitter.foldexpr, lnum)
+    if ok and ts_result then
+      return ts_result
+    end
+    return "0"
+  end
+end
+
+-- Clear cache when buffer changes
+vim.api.nvim_create_autocmd({"BufWrite", "TextChanged", "TextChangedI"}, {
+  callback = function(ev)
+    has_cell_markers_cache[ev.buf] = nil
+  end
+})
 
 ---------------------------------------------------------------------
 -- keymaps & command
@@ -108,6 +194,30 @@ vim.api.nvim_create_autocmd("FileType", {
 		vim.keymap.set("n", "<leader>ja",  "<cmd>JupyterRunAbove<CR>",    { buffer = buf, desc = "Jupyter: run all above" })
 		vim.keymap.set("n", "<leader>jc",  "<cmd>JupyterClearAll<CR>",    { buffer = buf, desc = "Jupyter: clear virtual text" })
 		vim.keymap.set("n", "<leader>ji",  "<cmd>JupyterInterrupt<CR>",    { buffer = buf, desc = "Jupyter: Interrupt" })
+
+		-- Set up folding for #%% cell markers
+		vim.opt_local.foldmethod = "expr"
+		vim.opt_local.foldexpr = "v:lua.require'jupyter'.fold_expr()"
+	end,
+})
+
+-- Auto-close folds when opening a Python file with cell markers (if enabled)
+vim.api.nvim_create_autocmd("BufReadPost", {
+	pattern = { "*.py" },
+	callback = function(ev)
+		local buf = ev.buf
+		local cfg_ok, cfg = pcall(require, "jupyter.config")
+		if not cfg_ok or not cfg.fold or not cfg.fold.close_cells_on_open then
+			return
+		end
+
+		-- Check if the buffer has cell markers
+		vim.schedule(function()
+			if buffer_has_cell_markers(buf) then
+				-- Close all folds
+				vim.cmd("normal! zM")
+			end
+		end)
 	end,
 })
 
