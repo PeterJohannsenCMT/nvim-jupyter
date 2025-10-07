@@ -261,6 +261,15 @@ local ns_linehl = vim.api.nvim_create_namespace("cell_line_highlight")
 
 local ns = vim.api.nvim_create_namespace('my-virt-lines')
 
+local function get_ui_cfg()
+  local defaults = { show_cell_borders = true }
+  local ok, cfg = pcall(require, "jupyter.config")
+  if ok and type(cfg) == "table" and type(cfg.ui) == "table" then
+    for k, v in pairs(cfg.ui) do defaults[k] = v end
+  end
+  return defaults
+end
+
 local function replace_with_mysign(bufnr, lnum)
   -- 1) remove ANY of {JupyterRun,JupyterOK,JupyterErr,MySign} on that line
   --    (because they’re all in the same group)
@@ -285,6 +294,7 @@ function M.highlight_cells()
   vim.api.nvim_buf_clear_namespace(bufnr, ns_linehl, 0, -1)
 
   local cell_count = 0
+  local ui_cfg = get_ui_cfg()
 
 	_G.CurrentCell = nil
   for i = 0, vim.api.nvim_buf_line_count(bufnr) - 1 do
@@ -320,8 +330,12 @@ function M.highlight_cells()
         })
 
         vim.api.nvim_buf_add_highlight(bufnr, ns_linehl, "CellLineBackground", i, 0, -1)
-				vim.api.nvim_buf_set_extmark(0, ns, i, 0, {virt_lines = { { { padding_bottom, "CellLineBG" } }, }, virt_lines_above = true})
-				vim.api.nvim_buf_set_extmark(0, ns, i, 0, {virt_lines = { { { padding_top, "CellLineBG" } }, }, virt_lines_above = false})
+
+        -- Only add virtual lines if show_cell_borders is enabled
+        if ui_cfg.show_cell_borders then
+          vim.api.nvim_buf_set_extmark(0, ns, i, 0, {virt_lines = { { { padding_bottom, "CellLineBG" } }, }, virt_lines_above = true})
+          vim.api.nvim_buf_set_extmark(0, ns, i, 0, {virt_lines = { { { padding_top, "CellLineBG" } }, }, virt_lines_above = false})
+        end
 
       end
     end

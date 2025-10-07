@@ -24,5 +24,11 @@ local M = {
 		hl_normal  = "JupyterInline",
 		hl_error   = "ErrorMsg",
 	},
+	ui = {
+		show_cell_borders = true,  -- Show virtual lines above/below #%% markers
+	},
+	fold = {
+		close_cells_on_open = false,  -- Automatically close all folds when opening a Python file with #%% markers
+	},
 }
 return M
