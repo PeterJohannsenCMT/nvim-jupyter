@@ -178,6 +178,11 @@ vim.api.nvim_create_user_command("JupyterCancelQueue", function()
   require("jupyter.kernel").cancel_queue()
 end, {})
 
+vim.api.nvim_create_user_command("JupyterUpdateSigns", function()
+  local bufnr = vim.api.nvim_get_current_buf()
+  require("jupyter.ui").update_sign_positions(bufnr)
+end, {})
+
 
 -- Default buffer-local keymaps for Python; safe and non-invasive
 vim.api.nvim_create_autocmd("FileType", {
@@ -251,7 +256,22 @@ vim.api.nvim_create_autocmd("FileType", {
         buffer = args.buf,
         callback = function()
 					local p = require("jupyter.ui")
-          vim.schedule(p.highlight_cells)
+          vim.schedule(function()
+            p.highlight_cells()
+          end)
+        end,
+      }
+    )
+    -- Separate autocmd for sign updates (triggered on cursor events and fold operations)
+    vim.api.nvim_create_autocmd(
+      { "CursorMoved", "CursorMovedI", "CursorHold", "CursorHoldI" },
+      {
+        buffer = args.buf,
+        callback = function()
+          local p = require("jupyter.ui")
+          vim.schedule(function()
+            p.update_sign_positions(args.buf)
+          end)
         end,
       }
     )

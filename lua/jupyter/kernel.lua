@@ -395,15 +395,19 @@ local function ensure_bridge()
 				local ns = vim.api.nvim_create_namespace("jupyter_exec")
 				local line = vim.api.nvim_buf_get_lines(bufnr, diag_row, diag_row + 1, false)[1] or ""
 				local col  = #line
-				vim.diagnostic.set(ns, bufnr, {
-					{
-						lnum = diag_row, col = col,
-						end_lnum = diag_row, end_col = 0,
-						severity = vim.diagnostic.severity.ERROR,
-						message = "Jupyter Cell exited with error: " .. msg.ename,
-						source = "jupyter",
-					},
-				})
+				-- Get existing diagnostics and append the new one
+				local existing = vim.diagnostic.get(bufnr, { namespace = ns })
+				local new_diag = {
+					lnum = diag_row,
+					col = col,
+					end_lnum = diag_row,
+					end_col = col,
+					severity = vim.diagnostic.severity.ERROR,
+					message = "Jupyter Cell exited with error: " .. msg.ename,
+					source = "jupyter",
+				}
+				table.insert(existing, new_diag)
+				vim.diagnostic.set(ns, bufnr, existing)
 			end
 
       -- advance queue
@@ -546,7 +550,7 @@ function M.cancel_queue()
 end
 
 -- Execute code from a given source row (0-based)
-function M.execute(code, row)
+function M.execute(code, row, marker_text)
   if not ensure_bridge() then return end
 
   -- Remember owner buffer to place signs/inline correctly
@@ -566,7 +570,7 @@ function M.execute(code, row)
   pending[seq] = { row = row, start_row = start_row, bufnr = bufnr }
   had_error[seq] = nil
 
-  out.start_cell(seq)  -- open output header now
+  out.start_cell(seq, marker_text)  -- open output header now, with optional marker text
 
   table.insert(queue, { seq = seq, code = code })
   if ready and not inflight then
@@ -590,7 +594,18 @@ function M.eval_current_block()
 	ui.clear_range(M.owner_buf, s, e+1)
 	ui.clear_signs_range(M.owner_buf, s, e+1)
 
-  M.execute(code, e)  -- anchor at end row
+  -- Extract the cell marker text (if s > 0, the marker is at s-1)
+  local marker_text = "#%%"
+  if s > 0 then
+    local marker_line = vim.api.nvim_buf_get_lines(0, s - 1, s, false)[1]
+    if marker_line and marker_line:match("^%s*#%s*%%") then
+      -- Match both %% characters, then capture the rest
+      marker_text = marker_line:match("^%s*#%s*%%%%(.*)$") or ""
+      marker_text = "#%%" .. marker_text
+    end
+  end
+
+  M.execute(code, e, marker_text)  -- anchor at end row, pass marker text
 
 	local last_row0 = vim.api.nvim_buf_line_count(0)
 	if last_row0 > e+3 then

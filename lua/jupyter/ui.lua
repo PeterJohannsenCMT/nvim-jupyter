@@ -20,6 +20,7 @@ end
 
 local function get_cfg()
   local inline = {
+    enabled    = true,
     strip_ansi = true,
     maxlen     = 300,
     prefix     = " ⟶ ",
@@ -99,6 +100,10 @@ end
 function M.show_inline(bufnr, row, text, opts)
   if not (bufnr and api.nvim_buf_is_valid(bufnr)) then return end
 
+  -- Check if inline output is enabled
+  local cfg = get_cfg().inline
+  if cfg.enabled == false then return end
+
   local cleaned, has_cr, raw = sanitize_for_inline(text)
   clear_inline_mark(bufnr, row)
 
@@ -168,26 +173,106 @@ function M.finish_row(a, b)
 end
 
 -- Signs -----------------------------------------------------------------------
-local signs_defined = false
-local function ensure_signs()
-  if signs_defined then return end
-  signs_defined = true
-  pcall(vim.fn.sign_define, "JupyterRun", { text = "●", texthl = "DiagnosticWarn" })
-  pcall(vim.fn.sign_define, "JupyterOK",  { text = "✓", texthl = "DiagnosticOk" })
-  pcall(vim.fn.sign_define, "JupyterErr", { text = "✗", texthl = "DiagnosticError" })
+-- Store sign info: [bufnr][original_row] = { kind, mark_id }
+local sign_marks = {}
+
+local function get_sign_appearance(kind)
+  if kind == "run" then
+    return "●", "DiagnosticWarn"
+  elseif kind == "ok" then
+    return "✓", "DiagnosticOk"
+  else  -- "err"
+    return "✗", "DiagnosticError"
+  end
+end
+
+local function determine_sign_row(bufnr, original_row)
+  -- If the target row is inside a fold, place sign on the fold start line (#%% marker)
+  -- Otherwise, place on the original row
+
+  -- We need to check from the context of a window displaying this buffer
+  local wins = vim.fn.win_findbuf(bufnr)
+  if #wins > 0 then
+    local saved_win = api.nvim_get_current_win()
+    local target_win = wins[1]
+
+    -- Temporarily switch to the window to check fold state
+    local ok = pcall(api.nvim_set_current_win, target_win)
+    if ok then
+      local fold_start = vim.fn.foldclosed(original_row + 1)  -- foldclosed uses 1-based line numbers
+      pcall(api.nvim_set_current_win, saved_win)
+
+      if fold_start ~= -1 then
+        return fold_start - 1  -- Convert back to 0-based (place on #%% line)
+      end
+    end
+  end
+  return original_row  -- Place on actual execution line when unfolded
 end
 
 function M.place_sign(kind, bufnr, row)
-  ensure_signs()
-  local name = (kind == "run" and "JupyterRun") or (kind == "ok" and "JupyterOK") or "JupyterErr"
-  local id = row + 1
-  pcall(vim.fn.sign_unplace, GROUP, { buffer = bufnr, id = id })
-  pcall(vim.fn.sign_place, id, GROUP, name, bufnr, { lnum = row + 1, priority = 10 })
+  if not (bufnr and api.nvim_buf_is_valid(bufnr)) then return end
+
+  local sign_text, sign_hl = get_sign_appearance(kind)
+  local sign_row = determine_sign_row(bufnr, row)
+
+  -- Remove any existing sign at this original row
+  if not sign_marks[bufnr] then sign_marks[bufnr] = {} end
+  if sign_marks[bufnr][row] and sign_marks[bufnr][row].mark_id then
+    pcall(api.nvim_buf_del_extmark, bufnr, ns_exec, sign_marks[bufnr][row].mark_id)
+  end
+
+  -- Place new sign using extmark
+  local ok, mark_id = pcall(api.nvim_buf_set_extmark, bufnr, ns_exec, sign_row, 0, {
+    sign_text = sign_text,
+    sign_hl_group = sign_hl,
+    priority = 10,
+  })
+
+  if ok then
+    sign_marks[bufnr][row] = { kind = kind, mark_id = mark_id }
+  end
+end
+
+-- Update all sign positions based on current fold state
+function M.update_sign_positions(bufnr)
+  if not (bufnr and api.nvim_buf_is_valid(bufnr)) then return end
+  if not sign_marks[bufnr] then return end
+
+  for original_row, info in pairs(sign_marks[bufnr]) do
+    if info.kind and info.mark_id then
+      local sign_text, sign_hl = get_sign_appearance(info.kind)
+      local new_sign_row = determine_sign_row(bufnr, original_row)
+
+      -- Update the extmark position
+      pcall(api.nvim_buf_del_extmark, bufnr, ns_exec, info.mark_id)
+      local ok, mark_id = pcall(api.nvim_buf_set_extmark, bufnr, ns_exec, new_sign_row, 0, {
+        sign_text = sign_text,
+        sign_hl_group = sign_hl,
+        priority = 10,
+      })
+
+      if ok then
+        sign_marks[bufnr][original_row].mark_id = mark_id
+      end
+    end
+  end
 end
 
 function M.clear_signs(bufnr)
+  -- Clear extmark-based signs
+  if sign_marks[bufnr] then
+    for row, info in pairs(sign_marks[bufnr]) do
+      if info.mark_id then
+        pcall(api.nvim_buf_del_extmark, bufnr, ns_exec, info.mark_id)
+      end
+    end
+    sign_marks[bufnr] = {}
+  end
+
+  -- Also clear any old-style signs (for backwards compatibility)
   pcall(vim.fn.sign_unplace, GROUP, { buffer = bufnr })
-	vim.diagnostic.reset(ns_exec, bufnr)
+  vim.diagnostic.reset(ns_exec, bufnr)
 end
 
 local function remove_diagnostics_in_range(bufnr, srow, erow)
@@ -243,6 +328,18 @@ function M.clear_signs_range(bufnr, srow, erow)
   if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then return end
   if not (srow and erow) then return end
   if erow < srow then srow, erow = erow, srow end
+
+  -- Clear extmark-based signs in range
+  if sign_marks[bufnr] then
+    for row = srow, erow do
+      if sign_marks[bufnr][row] and sign_marks[bufnr][row].mark_id then
+        pcall(api.nvim_buf_del_extmark, bufnr, ns_exec, sign_marks[bufnr][row].mark_id)
+        sign_marks[bufnr][row] = nil
+      end
+    end
+  end
+
+  -- Also clear any old-style signs (for backwards compatibility)
   local placed = vim.fn.sign_getplaced(bufnr, { group = GROUP}) or {}
   local items = placed[1] and placed[1].signs or {}
   for _, s in ipairs(items) do
@@ -296,6 +393,9 @@ function M.highlight_cells()
   local cell_count = 0
   local ui_cfg = get_ui_cfg()
 
+  -- Check if this is the outbuf - if so, don't add virtual lines
+  local is_outbuf = vim.b[bufnr].is_outbuf == true
+
 	_G.CurrentCell = nil
   for i = 0, vim.api.nvim_buf_line_count(bufnr) - 1 do
     local line = vim.api.nvim_buf_get_lines(bufnr, i, i + 1, false)[1] or ""
@@ -331,8 +431,8 @@ function M.highlight_cells()
 
         vim.api.nvim_buf_add_highlight(bufnr, ns_linehl, "CellLineBackground", i, 0, -1)
 
-        -- Only add virtual lines if show_cell_borders is enabled
-        if ui_cfg.show_cell_borders then
+        -- Only add virtual lines if show_cell_borders is enabled and not in outbuf
+        if ui_cfg.show_cell_borders and not is_outbuf then
           vim.api.nvim_buf_set_extmark(0, ns, i, 0, {virt_lines = { { { padding_bottom, "CellLineBG" } }, }, virt_lines_above = true})
           vim.api.nvim_buf_set_extmark(0, ns, i, 0, {virt_lines = { { { padding_top, "CellLineBG" } }, }, virt_lines_above = false})
         end

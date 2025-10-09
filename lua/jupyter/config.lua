@@ -18,6 +18,7 @@ local M = {
 		restart_on_timeout = true,
 	},
 	inline = {
+		enabled    = true,        -- set to false to disable inline output
 		strip_ansi = true,
 		maxlen     = 120,
 		prefix     = " ⇒  ",

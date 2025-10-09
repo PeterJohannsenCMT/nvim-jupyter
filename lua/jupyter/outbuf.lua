@@ -83,7 +83,7 @@ local function ensure_buf()
 
 	api.nvim_buf_set_option(out_bufnr, "buftype", "nofile")
 	api.nvim_buf_set_option(out_bufnr, "bufhidden", "hide")
-	api.nvim_buf_set_option(out_bufnr, "filetype", "python")
+	api.nvim_buf_set_option(out_bufnr, "filetype", "test")
 	vim.b[out_bufnr].is_outbuf = true
 
   -- Set up autocmd to clean up references when buffer is deleted
@@ -214,6 +214,14 @@ end
 -- end
 
 local OUT_PAD_NS = api.nvim_create_namespace('outbuf_pad')
+local CELL_MARKER_NS = api.nvim_create_namespace('jupyter_cell_marker')
+
+-- Define highlight for cell markers
+vim.api.nvim_set_hl(0, "JupyterCellMarker", {
+  fg = "#89b4fa",  -- Bright blue (catppuccin blue)
+  bold = true,
+  default = true   -- Allow users to override
+})
 
 -- Throttle scrolling to prevent EMFILE during rapid output
 local last_scroll = 0
@@ -270,6 +278,8 @@ function M.clear()
   api.nvim_buf_set_option(buf, "modifiable", true)
   set_lines_colored(buf, 0, -1, {}, false)
   api.nvim_buf_set_option(buf, "modifiable", false)
+  -- Clear cell marker highlights
+  api.nvim_buf_clear_namespace(buf, CELL_MARKER_NS, 0, -1)
   state = {}
   -- Clear any pending buffer updates
   pending_buffer_updates = {}
@@ -299,18 +309,44 @@ local function ensure_started(seq)
   if st and st.opened then return st end
   M.open()
   local buf = ensure_buf()
-  append_lines({("#%%"), ""})
+  local marker = (st and st.marker_text) or "#%%"
+
+  -- Get the line number where the marker will be inserted BEFORE adding lines
+  local line_before = api.nvim_buf_line_count(buf)
+  local marker_line = line_before - 1
+  if marker_line < 0 then marker_line = 0 end
+
+  -- Check if buffer is empty
+  local is_empty = line_before == 1 and (api.nvim_buf_get_lines(buf, 0, 1, false)[1] == "")
+  if is_empty then
+    marker_line = 0
+  else
+    marker_line = line_before
+  end
+
+  append_lines({marker, ""})
+
+  -- Add extmark highlight to the marker line AFTER it's been added
+  pcall(api.nvim_buf_set_extmark, buf, CELL_MARKER_NS, marker_line, 0, {
+    end_line = marker_line,
+    end_col = #marker,
+    hl_group = "JupyterCellMarker",
+    priority = 200,  -- Higher priority to override syntax highlighting
+    hl_mode = "replace"  -- Replace existing highlights
+  })
+
   st = st or {}
   st.opened = true
   st.row = api.nvim_buf_line_count(buf) - 1
   st.line = st.line or ""
+  st.marker_line = marker_line  -- Store marker line for re-highlighting
   state[seq] = st
   return st
 end
 
-function M.start_cell(seq)
+function M.start_cell(seq, marker_text)
   -- register the cell but DO NOT open or print header yet
-  state[seq] = { opened = false, row = nil, line = "" }
+  state[seq] = { opened = false, row = nil, line = "", marker_text = marker_text or "#%%" }
 end
 
 -- helpers to decide if a segment has visible content
@@ -393,6 +429,17 @@ local function flush_buffer_updates()
           st.line = all_lines[#all_lines]
         else
           st.line = ""
+        end
+
+        -- Re-apply marker highlight after buffer modifications
+        if st.marker_line and st.marker_text then
+          pcall(api.nvim_buf_set_extmark, buf, CELL_MARKER_NS, st.marker_line, 0, {
+            end_line = st.marker_line,
+            end_col = #st.marker_text,
+            hl_group = "JupyterCellMarker",
+            priority = 200,
+            hl_mode = "replace"
+          })
         end
 
         api.nvim_buf_set_option(buf, "modifiable", false)
