@@ -1,3 +1,5 @@
+---@diagnostic disable: undefined-global, undefined-field
+
 local api = vim.api
 
 local M = {}
@@ -411,15 +413,16 @@ function M.highlight_cells()
       -- skip overlay for current line *only in insert mode*
       if not (in_insert_mode and i == cursor_line) then
         local trimmed = vim.trim(content)
-        local label = string.format("In[%d]:", cell_count)
+        local label = string.format("Cell %d:", cell_count)
         local full_display = trimmed == "" and label or (label .. " " .. trimmed)
 
         local text_width = vim.fn.strdisplaywidth(full_display)
         local padding_len = math.max(0, width - text_width)
         local padding = string.rep(" ", padding_len)
-        local padding_top = string.rep("▀", width)
-        local padding_bottom = string.rep("▄", width)
-
+        -- local padding_top = string.rep("▀", width)
+        -- local padding_bottom = string.rep("▄", width)
+        local padding_top = string.rep("▔", width)
+        local padding_bottom = string.rep("▁", width)
 
         vim.api.nvim_buf_set_extmark(bufnr, ns_sign, i, 0, {
           virt_text = {
