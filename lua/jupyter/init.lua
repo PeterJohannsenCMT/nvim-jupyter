@@ -1,3 +1,5 @@
+---@diagnostic disable: undefined-global, undefined-field
+
 local kernel = require "jupyter.kernel"
 local utils  = require "jupyter.utils"
 local ui  = require "jupyter.ui"
@@ -155,7 +157,7 @@ vim.api.nvim_create_user_command("JupyterRunCell",      function() kernel.eval_c
 vim.api.nvim_create_user_command("JupyterRunAbove",      function() kernel.eval_all_above() end, {})
 vim.api.nvim_create_user_command("JupyterClearAll",      function() ui.clear_all(0) end, {})
 vim.api.nvim_create_user_command("JupyterRunCellStay", function()
-  local utils = require("jupyter.utils")
+  utils = require("jupyter.utils")
   local s, e = utils.find_code_block()
   if not s or not e then return end
   local lines = vim.api.nvim_buf_get_lines(0, s, e + 1, false)
@@ -213,14 +215,14 @@ vim.api.nvim_create_autocmd("BufReadPost", {
 		local buf = ev.buf
 		local cfg_ok, cfg = pcall(require, "jupyter.config")
 		if not cfg_ok or not cfg.fold or not cfg.fold.close_cells_on_open then
+			vim.cmd("set foldlevel=99")
 			return
 		end
 
 		-- Check if the buffer has cell markers
 		vim.schedule(function()
 			if buffer_has_cell_markers(buf) then
-				-- Close all folds
-				vim.cmd("normal! zM")
+				vim.cmd("set foldlevel=0")
 			end
 		end)
 	end,

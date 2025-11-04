@@ -583,7 +583,6 @@ end
 function M.eval_current_block()
   local s, e = require("jupyter.utils").find_code_block()
   if not s or not e then
-    vim.notify("Jupyter: no #%% cell markers found", vim.log.levels.WARN)
     return
   end
   local lines = vim.api.nvim_buf_get_lines(0, s, e + 1, false)
