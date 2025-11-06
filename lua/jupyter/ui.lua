@@ -180,7 +180,7 @@ local sign_marks = {}
 
 local function get_sign_appearance(kind)
   if kind == "run" then
-    return "●", "DiagnosticWarn"
+		return "󰦖", "JupyterRunning" -- 
   elseif kind == "ok" then
     return "✓", "DiagnosticOk"
   else  -- "err"
@@ -399,7 +399,8 @@ function M.highlight_cells()
   local is_outbuf = vim.b[bufnr].is_outbuf == true
 
 	_G.CurrentCell = nil
-  for i = 0, vim.api.nvim_buf_line_count(bufnr) - 1 do
+  local line_count = vim.api.nvim_buf_line_count(bufnr)
+  for i = 0, line_count - 1 do
     local line = vim.api.nvim_buf_get_lines(bufnr, i, i + 1, false)[1] or ""
     local content = line:match("^#%%%%%s*(.*)$")
 
@@ -436,8 +437,34 @@ function M.highlight_cells()
 
         -- Only add virtual lines if show_cell_borders is enabled and not in outbuf
         if ui_cfg.show_cell_borders and not is_outbuf then
-          vim.api.nvim_buf_set_extmark(0, ns, i, 0, {virt_lines = { { { padding_bottom, "CellLineBG" } }, }, virt_lines_above = true})
-          vim.api.nvim_buf_set_extmark(0, ns, i, 0, {virt_lines = { { { padding_top, "CellLineBG" } }, }, virt_lines_above = false})
+          local content_start = math.min(i + 1, line_count - 1)
+          local content_end = line_count - 1
+
+          for j = i + 1, line_count - 1 do
+            local next_line = vim.api.nvim_buf_get_lines(bufnr, j, j + 1, false)[1] or ""
+            if next_line:match("^#%%%%") then
+              content_end = j - 1
+              break
+            end
+          end
+
+          if content_start > content_end then
+            content_start = i
+            content_end = i
+          end
+
+          local has_content = content_start > i
+
+          if has_content then
+            vim.api.nvim_buf_set_extmark(bufnr, ns, content_start, 0, {
+              virt_lines = { { { padding_top, "CellLineBG" } } },
+              virt_lines_above = true,
+            })
+            vim.api.nvim_buf_set_extmark(bufnr, ns, content_end, 0, {
+              virt_lines = { { { padding_bottom, "CellLineBG" } } },
+              virt_lines_above = false,
+            })
+          end
         end
 
       end
