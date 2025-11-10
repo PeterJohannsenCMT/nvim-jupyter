@@ -277,6 +277,27 @@ function M.clear_signs(bufnr)
   vim.diagnostic.reset(ns_exec, bufnr)
 end
 
+-- Clear every pending sign/diagnostic entry created by this plugin
+function M.clear_all_signs()
+  local cleared = {}
+  for bufnr, _ in pairs(sign_marks) do
+    if api.nvim_buf_is_valid(bufnr) then
+      M.clear_signs(bufnr)
+      cleared[bufnr] = true
+    else
+      sign_marks[bufnr] = nil
+    end
+  end
+
+  -- Some buffers may only carry diagnostics (for example after clear_signs_range);
+  -- ensure those are wiped as well.
+  for _, bufnr in ipairs(api.nvim_list_bufs()) do
+    if not cleared[bufnr] and api.nvim_buf_is_valid(bufnr) then
+      vim.diagnostic.reset(ns_exec, bufnr)
+    end
+  end
+end
+
 local function remove_diagnostics_in_range(bufnr, srow, erow)
   if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then return end
   srow = srow or 0

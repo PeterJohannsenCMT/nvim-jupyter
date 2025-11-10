@@ -461,6 +461,7 @@ local function ensure_bridge()
         pcall(function() M.bridge:close() end)
       end
       M.bridge = nil; ready = false; inflight = false; queue = {}
+      ui.clear_all_signs()
       return
     end
   end)
@@ -490,6 +491,7 @@ function M.stop()
   pending = {}
   had_error = {}
   _inline_rl:reset()
+  ui.clear_all_signs()
   -- Clean up throttle timers if throttle module is loaded
   local ok, throttle = pcall(require, "jupyter.throttle")
   if ok and throttle and type(throttle.stop) == "function" then
