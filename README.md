@@ -127,10 +127,14 @@ The plugin automatically sets up these keybindings for Python files:
 ### Kernel Management
 - `:JupyterStart` - Start a new Jupyter kernel
 - `:JupyterRestart` - Restart the current kernel
+- `:JupyterPause` - Pause the kernel process (Unix only, uses `SIGSTOP`)
+- `:JupyterResume` - Resume a paused kernel (Unix only, uses `SIGCONT`)
 - `:JupyterStop` - Stop the kernel and close connection
 - `:JupyterInterrupt` - Interrupt current execution
 - `:JupyterInterruptKeep` - Interrupt without dropping execution queue
 - `:JupyterCancelQueue` - Cancel all queued executions
+
+> Pause/Resume rely on POSIX signals and are not available on Windows.
 
 ### Code Execution
 - `:JupyterRunLine` - Execute the current line

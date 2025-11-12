@@ -8,14 +8,32 @@ local M      = {}
 
 vim.g.jupyter_outbuf_hl = "JupyterOutput"
 
--- Define both GUI and cterm background so it works with/without termguicolors
-local function define_outbuf_hl()
-  vim.api.nvim_set_hl(0, "JupyterOutput", { bg = "#1e1e2e", ctermbg = 235 })
+local DEFAULT_OUTBUF_HL = { bg = "#1e1e2e", ctermbg = 235 }
+
+local function highlight_is_defined(name)
+  local ok, hl = pcall(vim.api.nvim_get_hl, 0, { name = name, link = false })
+  if not ok then
+    return vim.fn.hlexists(name) == 1
+  end
+  return next(hl) ~= nil
 end
 
-define_outbuf_hl()
+-- Define both GUI and cterm background so it works with/without termguicolors
+local function define_outbuf_hl(force)
+  if vim.g.jupyter_outbuf_user_override then
+    return
+  end
+  if not force and highlight_is_defined("JupyterOutput") then
+    return
+  end
+  vim.api.nvim_set_hl(0, "JupyterOutput", DEFAULT_OUTBUF_HL)
+end
+
+define_outbuf_hl(true)
 vim.api.nvim_create_autocmd("ColorScheme", {
-  callback = define_outbuf_hl,
+  callback = function()
+    define_outbuf_hl()
+  end,
 })
 ---------------------------------------------------------------------
 -- evaluate the current code block
@@ -25,7 +43,7 @@ function M.eval_current_block()
     vim.notify("Jupyter: kernel not running (use :JupyterStart)", vim.log.levels.WARN)
     return
   end
-  local s, e   = utils.find_code_block()
+  local s, e   = utils.find_code_block({ include_subcells = true })
   -- e is inclusive (0-based) from utils → pass e+1 to buf_get_lines (exclusive)
   local lines  = vim.api.nvim_buf_get_lines(0, s, e + 1, false)
   kernel.execute(table.concat(lines, "\n"), e)   -- place inline output at end line
@@ -66,65 +84,61 @@ function M.setup(opts)
 end
 
 ---------------------------------------------------------------------
--- folding support for #%% cell markers + treesitter
+-- folding support for cell markers + treesitter
 ---------------------------------------------------------------------
-local has_cell_markers_cache = {}
-
 local function buffer_has_cell_markers(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local state = utils.get_marker_state(bufnr)
+  return state and #state.order > 0
+end
 
-  -- Check cache
-  if has_cell_markers_cache[bufnr] ~= nil then
-    return has_cell_markers_cache[bufnr]
+local function adjust_ts_result(ts_result, base_level)
+  if base_level == 0 or not ts_result then
+    return ts_result
   end
-
-  -- Search for cell markers in buffer
-  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  for _, line in ipairs(lines) do
-    if line:match("^#%%") then
-      has_cell_markers_cache[bufnr] = true
-      return true
+  if type(ts_result) == "string" then
+    if ts_result == "=" then
+      return "="
+    elseif ts_result:sub(1, 1) == ">" then
+      local lvl = tonumber(ts_result:sub(2))
+      if lvl then
+        return ">" .. (lvl + base_level)
+      end
+    else
+      local lvl = tonumber(ts_result)
+      if lvl then
+        return tostring(lvl + base_level)
+      end
     end
+  elseif type(ts_result) == "number" then
+    return tostring(ts_result + base_level)
   end
-
-  has_cell_markers_cache[bufnr] = false
-  return false
+  return "="
 end
 
 function M.fold_expr()
   local lnum = vim.v.lnum
-  local line = vim.fn.getline(lnum)
   local bufnr = vim.api.nvim_get_current_buf()
 
   -- Check if buffer has cell markers
-  local has_cells = buffer_has_cell_markers(bufnr)
+  local state = utils.get_marker_state(bufnr)
+  local has_cells = state and #state.order > 0
+  local row0 = lnum - 1
 
   if has_cells then
-    -- Hybrid mode: cell markers + treesitter
-    if line:match("^#%%") then
-      return ">1"  -- Start a level 1 fold for the cell
+    local marker = state.markers[row0]
+    if marker then
+      return marker.type == "sub" and ">2" or ">1"
     end
 
-    -- Get treesitter fold level and increment it to nest within cells
+    local base_level = state.base_levels[row0] or 0
     local ok, ts_result = pcall(vim.treesitter.foldexpr, lnum)
     if ok and ts_result and ts_result ~= "0" then
-      -- Parse the treesitter result and increment fold level
-      if type(ts_result) == "string" then
-        if ts_result:match("^>") then
-          local level = tonumber(ts_result:sub(2))
-          return ">" .. (level + 1)
-        elseif ts_result == "=" then
-          return "="
-        else
-          local level = tonumber(ts_result)
-          if level and level > 0 then
-            return tostring(level + 1)
-          end
-        end
+      local adjusted = adjust_ts_result(ts_result, base_level)
+      if adjusted then
+        return adjusted
       end
     end
-
-    -- Continue at same level within cell
     return "="
   else
     -- No cell markers: use pure treesitter folding
@@ -136,10 +150,10 @@ function M.fold_expr()
   end
 end
 
--- Clear cache when buffer changes
-vim.api.nvim_create_autocmd({"BufWrite", "TextChanged", "TextChangedI"}, {
+-- Clear marker cache when buffer changes or buffer is wiped
+vim.api.nvim_create_autocmd({"BufWrite", "TextChanged", "TextChangedI", "BufWipeout"}, {
   callback = function(ev)
-    has_cell_markers_cache[ev.buf] = nil
+    utils.invalidate_marker_cache(ev.buf)
   end
 })
 
@@ -148,6 +162,8 @@ vim.api.nvim_create_autocmd({"BufWrite", "TextChanged", "TextChangedI"}, {
 ---------------------------------------------------------------------
 vim.api.nvim_create_user_command("JupyterStart",      function() kernel.start()            end, {})
 vim.api.nvim_create_user_command("JupyterRestart",    function() kernel.restart()          end, {})
+vim.api.nvim_create_user_command("JupyterPause",      function() kernel.pause()            end, {})
+vim.api.nvim_create_user_command("JupyterResume",     function() kernel.resume()           end, {})
 vim.api.nvim_create_user_command("JupyterInterrupt",  function() kernel.interrupt()        end, {})
 vim.api.nvim_create_user_command("JupyterStop",       function() kernel.stop()             end, {})
 
@@ -158,7 +174,7 @@ vim.api.nvim_create_user_command("JupyterRunAbove",      function() kernel.eval_
 vim.api.nvim_create_user_command("JupyterClearAll",      function() ui.clear_all(0) end, {})
 vim.api.nvim_create_user_command("JupyterRunCellStay", function()
   utils = require("jupyter.utils")
-  local s, e = utils.find_code_block()
+  local s, e = utils.find_code_block({ include_subcells = true })
   if not s or not e then return end
   local lines = vim.api.nvim_buf_get_lines(0, s, e + 1, false)
   local empty = true
@@ -202,7 +218,7 @@ vim.api.nvim_create_autocmd("FileType", {
 		vim.keymap.set("n", "<leader>jc",  "<cmd>JupyterClearAll<CR>",    { buffer = buf, desc = "Jupyter: clear virtual text" })
 		vim.keymap.set("n", "<leader>ji",  "<cmd>JupyterInterrupt<CR>",    { buffer = buf, desc = "Jupyter: Interrupt" })
 
-		-- Set up folding for #%% cell markers
+		-- Set up folding for cell markers (#%% / ##%%)
 		vim.opt_local.foldmethod = "expr"
 		vim.opt_local.foldexpr = "v:lua.require'jupyter'.fold_expr()"
 	end,

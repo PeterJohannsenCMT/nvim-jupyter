@@ -1,5 +1,6 @@
 local api = vim.api
 local ui = require "jupyter.ui"
+local filetype = require "jupyter.filetype"
 local cfg_out = require"jupyter.config".out or {}
 
 local function get_out_cfg()
@@ -83,7 +84,7 @@ local function ensure_buf()
 
 	api.nvim_buf_set_option(out_bufnr, "buftype", "nofile")
 	api.nvim_buf_set_option(out_bufnr, "bufhidden", "hide")
-	api.nvim_buf_set_option(out_bufnr, "filetype", "test")
+	filetype.apply_outbuf(out_bufnr)
 	vim.b[out_bufnr].is_outbuf = true
 
   -- Set up autocmd to clean up references when buffer is deleted

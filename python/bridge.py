@@ -59,6 +59,32 @@ def _safe_shutdown_kernel(now=True):
 def _kernel_ready():
     return km is not None and kc is not None
 
+def _signal_kernel(signame):
+    if not hasattr(signal, signame):
+        return False, "{} unsupported on this platform".format(signame)
+    if km is None:
+        return False, "Kernel not running"
+    sig = getattr(signal, signame)
+
+    # Prefer the jupyter_client helper if available
+    if hasattr(km, "signal_kernel"):
+        try:
+            km.signal_kernel(sig)
+        except Exception as exc:
+            return False, str(exc)
+        return True, None
+
+    # Fallback: direct os.kill on the managed kernel PID (older clients)
+    proc = getattr(km, "kernel", None)
+    pid = getattr(proc, "pid", None)
+    if not pid:
+        return False, "Kernel PID unavailable"
+    try:
+        os.kill(pid, sig)
+    except Exception as exc:
+        return False, str(exc)
+    return True, None
+
 # ---------- kernel mgmt ----------
 def _start_kernel(kernel, cwd):
     global km, kc
@@ -194,6 +220,18 @@ def _handle_command(req):
             if km:
                 try: km.interrupt_kernel()
                 except Exception: pass
+        elif typ == "pause":
+            ok, err = _signal_kernel("SIGSTOP")
+            if ok:
+                send({"type": "paused"})
+            else:
+                send({"type": "pause_failed", "message": err})
+        elif typ == "resume":
+            ok, err = _signal_kernel("SIGCONT")
+            if ok:
+                send({"type": "resumed"})
+            else:
+                send({"type": "resume_failed", "message": err})
         elif typ == "restart":
             if km: _restart_kernel()
         elif typ == "shutdown":
