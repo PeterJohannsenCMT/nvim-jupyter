@@ -121,6 +121,14 @@ Manual installation: >
 :JupyterRestart         Restart the current kernel. All variables will be
                         lost, but the connection remains active.
 
+                                                          *:JupyterPause*
+:JupyterPause           Pause the kernel process using SIGSTOP (POSIX /
+                        Unix only). Execution freezes until resumed.
+
+                                                         *:JupyterResume*
+:JupyterResume          Resume a previously paused kernel using SIGCONT
+                        (POSIX / Unix only).
+
                                                           *:JupyterStop*
 :JupyterStop            Stop the kernel and close the connection. You'll need
                         to run |:JupyterStart| again to execute code.
@@ -164,6 +172,8 @@ Manual installation: >
                                                         *:JupyterClearAll*
 :JupyterClearAll        Clear all inline virtual text output from the
                         current buffer.
+
+Note: Pause/Resume rely on POSIX signals and are not supported on Windows.
 
 ==============================================================================
 6. KEYBINDINGS                                           *jupyter-keybindings*

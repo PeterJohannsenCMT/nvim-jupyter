@@ -3,6 +3,7 @@ local transport = require "jupyter.transport"
 local ui        = require "jupyter.ui"
 local out       = require "jupyter.outbuf"
 local throttle = require("jupyter.throttle")
+local utils = require "jupyter.utils"
 
 local M = { bridge = nil, owner_buf = nil }
 
@@ -218,6 +219,39 @@ local function get_cfg()
 end
 
 local function exists(p) return vim.loop.fs_stat(p) ~= nil end
+
+local function drop_pending_queue_entries()
+  if #queue == 0 then return 0 end
+
+  local removed = {}
+  if inflight then
+    for idx = #queue, 2, -1 do
+      local entry = table.remove(queue, idx)
+      if entry and entry.seq then
+        removed[#removed + 1] = entry.seq
+      end
+    end
+  else
+    while #queue > 0 do
+      local entry = table.remove(queue)
+      if entry and entry.seq then
+        removed[#removed + 1] = entry.seq
+      end
+    end
+  end
+
+  local cleared = 0
+  for _, seq_id in ipairs(removed) do
+    local cell = pending[seq_id]
+    if cell and cell.bufnr and vim.api.nvim_buf_is_valid(cell.bufnr) and cell.row ~= nil then
+      ui.clear_signs_range(cell.bufnr, cell.row, cell.row)
+      cleared = cleared + 1
+    end
+    pending[seq_id] = nil
+    had_error[seq_id] = nil
+  end
+  return cleared
+end
 
 local function find_bridge_script()
   local cfg = get_cfg()
@@ -456,6 +490,20 @@ local function ensure_bridge()
       end
       return
 
+    elseif t == "paused" then
+      vim.notify("Jupyter kernel paused", vim.log.levels.INFO)
+      return
+
+    elseif t == "resumed" then
+      vim.notify("Jupyter kernel resumed", vim.log.levels.INFO)
+      return
+
+    elseif t == "pause_failed" or t == "resume_failed" then
+      local action = (t == "pause_failed") and "pause" or "resume"
+      local detail = msg.message or string.format("Unable to %s kernel", action)
+      vim.notify("Jupyter: " .. detail, vim.log.levels.ERROR)
+      return
+
     elseif t == "bye" then
       if M.bridge and M.bridge.close then
         pcall(function() M.bridge:close() end)
@@ -501,9 +549,21 @@ end
 
 function M.interrupt(opts)
   opts = opts or {}
-  if M.bridge then
-    M.bridge:send({ type = "interrupt" })
+  if not M.bridge then return end
+
+  local cfg = get_cfg()
+  local interrupt_cfg = (cfg and cfg.interrupt) or {}
+  local drop_queue = opts.drop_queue
+  if drop_queue == nil then
+    drop_queue = interrupt_cfg.drop_queue
+    if drop_queue == nil then drop_queue = true end
   end
+
+  if drop_queue then
+    drop_pending_queue_entries()
+  end
+
+  M.bridge:send({ type = "interrupt" })
 end
 
 function M.start()
@@ -515,6 +575,22 @@ function M.restart()
   local cfg = get_cfg()
   local cwd = vim.fn.getcwd()
   M.bridge:send({ type = "restart", kernel = cfg.kernel_name or "python3", cwd = cwd })
+end
+
+function M.pause()
+  if not M.bridge then
+    vim.notify("Jupyter: kernel not running", vim.log.levels.WARN)
+    return
+  end
+  M.bridge:send({ type = "pause" })
+end
+
+function M.resume()
+  if not M.bridge then
+    vim.notify("Jupyter: kernel not running", vim.log.levels.WARN)
+    return
+  end
+  M.bridge:send({ type = "resume" })
 end
 
 function M.eval_line()
@@ -583,7 +659,7 @@ end
 
 -- Convenience: run the current cell (expects utils.find_code_block())
 function M.eval_current_block()
-  local s, e = require("jupyter.utils").find_code_block()
+  local s, e = utils.find_code_block({ include_subcells = true })
   if not s or not e then
     return
   end
@@ -599,10 +675,15 @@ function M.eval_current_block()
   local marker_text = "#%%"
   if s > 0 then
     local marker_line = vim.api.nvim_buf_get_lines(0, s - 1, s, false)[1]
-    if marker_line and marker_line:match("^%s*#%s*%%") then
-      -- Match both %% characters, then capture the rest
-      marker_text = marker_line:match("^%s*#%s*%%%%(.*)$") or ""
-      marker_text = "#%%" .. marker_text
+    if marker_line then
+      local mtype = utils.marker_type(marker_line)
+      if mtype == "sub" then
+        local suffix = marker_line:match("^%s*#%s*#%s*%%%%(.*)$") or ""
+        marker_text = "##%%" .. suffix
+      elseif mtype == "parent" then
+        local suffix = marker_line:match("^%s*#%s*%%%%(.*)$") or ""
+        marker_text = "#%%" .. suffix
+      end
     end
   end
 

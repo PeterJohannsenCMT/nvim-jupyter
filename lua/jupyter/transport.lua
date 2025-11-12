@@ -147,7 +147,34 @@ function M.spawn_bridge(script)
   local stderr = uv.new_pipe(false)
   local cfg    = get_cfg()
 
-  local handle, pid = uv.spawn(cfg.python_cmd or "python3", {
+  local function is_executable(cmd)
+    if not cmd or cmd == "" then return false end
+    if cmd:find("/") or cmd:find("\\") then
+      return uv.fs_stat(cmd) ~= nil
+    end
+    return vim.fn.executable(cmd) == 1
+  end
+
+  local requested_cmd = cfg.python_cmd or "python3"
+  local python_cmd = requested_cmd
+  if not is_executable(python_cmd) then
+    local fallback = "python3"
+    if requested_cmd ~= fallback and is_executable(fallback) then
+      python_cmd = fallback
+      vim.schedule(function()
+        vim.notify(
+          ("nvim-jupyter: python_cmd '%s' not found; falling back to '%s'")
+            :format(requested_cmd, fallback),
+          vim.log.levels.WARN
+        )
+      end)
+    else
+      return nil, ("python_cmd not executable: %s"):format(requested_cmd)
+    end
+  end
+  cfg.python_cmd = python_cmd
+
+  local handle, pid = uv.spawn(python_cmd, {
     args  = { "-u", script },
     stdio = { stdin, stdout, stderr },
     cwd   = uv.cwd(),

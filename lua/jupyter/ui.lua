@@ -1,6 +1,7 @@
 ---@diagnostic disable: undefined-global, undefined-field
 
 local api = vim.api
+local utils = require "jupyter.utils"
 
 local M = {}
 local GROUP = "nvim-jupyter"
@@ -413,40 +414,45 @@ function M.highlight_cells()
   vim.api.nvim_buf_clear_namespace(bufnr, ns_sign, 0, -1)
   vim.api.nvim_buf_clear_namespace(bufnr, ns_linehl, 0, -1)
 
-  local cell_count = 0
   local ui_cfg = get_ui_cfg()
 
   -- Check if this is the outbuf - if so, don't add virtual lines
   local is_outbuf = vim.b[bufnr].is_outbuf == true
 
-	_G.CurrentCell = nil
+  local state = utils.get_marker_state(bufnr)
+  local marker_rows = state.order or {}
+  local marker_map = state.markers or {}
+  local parent_total = state.parent_total or 0
   local line_count = vim.api.nvim_buf_line_count(bufnr)
-  for i = 0, line_count - 1 do
-    local line = vim.api.nvim_buf_get_lines(bufnr, i, i + 1, false)[1] or ""
-    local content = line:match("^#%%%%%s*(.*)$")
+  local last_line = math.max(line_count - 1, 0)
 
-    if content ~= nil then
-      cell_count = cell_count + 1
+	_G.CurrentCell = nil
+  for idx, row in ipairs(marker_rows) do
+    local marker = marker_map[row]
+    if marker then
+      if row <= cursor_line then
+			_G.CurrentCell = row
+		end
 
-			if i <= cursor_line then
-				_G.CurrentCell = i
-			end
+      if not (in_insert_mode and row == cursor_line) then
+        local label
+        if marker.type == "sub" then
+          local letter = marker.letter or utils.subcell_letter(marker.sub_index)
+          label = string.format("Cell %d%s:", marker.parent_index or idx, letter or "")
+        else
+          label = string.format("Cell %d:", marker.parent_index or idx)
+        end
 
-      -- skip overlay for current line *only in insert mode*
-      if not (in_insert_mode and i == cursor_line) then
-        local trimmed = vim.trim(content)
-        local label = string.format("Cell %d:", cell_count)
+        local trimmed = vim.trim(marker.text or "")
         local full_display = trimmed == "" and label or (label .. " " .. trimmed)
 
         local text_width = vim.fn.strdisplaywidth(full_display)
         local padding_len = math.max(0, width - text_width)
         local padding = string.rep(" ", padding_len)
-        -- local padding_top = string.rep("▀", width)
-        -- local padding_bottom = string.rep("▄", width)
         local padding_top = string.rep("▔", width)
         local padding_bottom = string.rep("▁", width)
 
-        vim.api.nvim_buf_set_extmark(bufnr, ns_sign, i, 0, {
+        vim.api.nvim_buf_set_extmark(bufnr, ns_sign, row, 0, {
           virt_text = {
             { full_display .. padding, "CellLineBackground" },
           },
@@ -454,27 +460,19 @@ function M.highlight_cells()
           hl_mode = "combine",
         })
 
-        vim.api.nvim_buf_add_highlight(bufnr, ns_linehl, "CellLineBackground", i, 0, -1)
+        vim.api.nvim_buf_add_highlight(bufnr, ns_linehl, "CellLineBackground", row, 0, -1)
 
-        -- Only add virtual lines if show_cell_borders is enabled and not in outbuf
         if ui_cfg.show_cell_borders and not is_outbuf then
-          local content_start = math.min(i + 1, line_count - 1)
-          local content_end = line_count - 1
-
-          for j = i + 1, line_count - 1 do
-            local next_line = vim.api.nvim_buf_get_lines(bufnr, j, j + 1, false)[1] or ""
-            if next_line:match("^#%%%%") then
-              content_end = j - 1
-              break
-            end
-          end
+          local next_row = marker_rows[idx + 1]
+          local content_start = math.min(row + 1, last_line)
+          local content_end = next_row and (next_row - 1) or last_line
 
           if content_start > content_end then
-            content_start = i
-            content_end = i
+            content_start = row
+            content_end = row
           end
 
-          local has_content = content_start > i
+          local has_content = content_start > row
 
           if has_content then
             vim.api.nvim_buf_set_extmark(bufnr, ns, content_start, 0, {
@@ -487,11 +485,10 @@ function M.highlight_cells()
             })
           end
         end
-
       end
     end
   end
-	_G.CellCount = cell_count  -- define global variable
+	_G.CellCount = parent_total
 end
 
 return M
