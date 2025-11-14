@@ -10,6 +10,33 @@ local ns = api.nvim_create_namespace("nvim-jupyter-ui")
 local ns_exec = vim.api.nvim_create_namespace("jupyter_exec")
 M.ns = ns
 
+local function highlight_is_defined(name)
+  if not name or name == "" then return false end
+  local ok, hl = pcall(api.nvim_get_hl, 0, { name = name, link = false })
+  if ok and hl and next(hl) ~= nil then
+    return true
+  end
+  return vim.fn.hlexists(name) == 1
+end
+
+local SUBCELL_HL_DEFAULTS = {
+  { name = "CellLineSubBackground", link = "CellLineBackground" },
+  { name = "CellLineSubBG",         link = "CellLineBG" },
+}
+
+local function define_subcell_highlights()
+  for _, def in ipairs(SUBCELL_HL_DEFAULTS) do
+    if def.name and def.link then
+      api.nvim_set_hl(0, def.name, { link = def.link, default = true })
+    end
+  end
+end
+
+define_subcell_highlights()
+api.nvim_create_autocmd("ColorScheme", {
+  callback = define_subcell_highlights,
+})
+
 -- Per-buffer state
 local inline_mark = {}        -- [bufnr][row] = extmark_id
 local row_state   = {}        -- [bufnr][row] = { saw_cr = bool }
@@ -379,6 +406,28 @@ local ns_bg = vim.api.nvim_create_namespace("cell_line_background")
 local ns_sign = vim.api.nvim_create_namespace("cell_signs")
 local ns_linehl = vim.api.nvim_create_namespace("cell_line_highlight")
 
+local CELL_HIGHLIGHT_SLOTS = {
+  header = {
+    parent = "CellLineBackground",
+    sub = "CellLineSubBackground",
+  },
+  border = {
+    parent = "CellLineBG",
+    sub = "CellLineSubBG",
+  },
+}
+
+local function get_cell_highlight(marker_type, slot)
+  local entry = CELL_HIGHLIGHT_SLOTS[slot]
+  if not entry then return nil end
+  if marker_type == "sub" then
+    local candidate = entry.sub
+    if candidate and highlight_is_defined(candidate) then
+      return candidate
+    end
+  end
+  return entry.parent
+end
 
 local ns = vim.api.nvim_create_namespace('my-virt-lines')
 
@@ -445,6 +494,8 @@ function M.highlight_cells()
 
         local trimmed = vim.trim(marker.text or "")
         local full_display = trimmed == "" and label or (label .. " " .. trimmed)
+        local header_hl = get_cell_highlight(marker.type, "header") or "CellLineBackground"
+        local border_hl = get_cell_highlight(marker.type, "border") or "CellLineBG"
 
         local text_width = vim.fn.strdisplaywidth(full_display)
         local padding_len = math.max(0, width - text_width)
@@ -454,13 +505,13 @@ function M.highlight_cells()
 
         vim.api.nvim_buf_set_extmark(bufnr, ns_sign, row, 0, {
           virt_text = {
-            { full_display .. padding, "CellLineBackground" },
+            { full_display .. padding, header_hl },
           },
           virt_text_pos = "overlay",
           hl_mode = "combine",
         })
 
-        vim.api.nvim_buf_add_highlight(bufnr, ns_linehl, "CellLineBackground", row, 0, -1)
+        vim.api.nvim_buf_add_highlight(bufnr, ns_linehl, header_hl, row, 0, -1)
 
         if ui_cfg.show_cell_borders and not is_outbuf then
           local next_row = marker_rows[idx + 1]
@@ -476,11 +527,11 @@ function M.highlight_cells()
 
           if has_content then
             vim.api.nvim_buf_set_extmark(bufnr, ns, content_start, 0, {
-              virt_lines = { { { padding_top, "CellLineBG" } } },
+              virt_lines = { { { padding_top, border_hl } } },
               virt_lines_above = true,
             })
             vim.api.nvim_buf_set_extmark(bufnr, ns, content_end, 0, {
-              virt_lines = { { { padding_bottom, "CellLineBG" } } },
+              virt_lines = { { { padding_bottom, border_hl } } },
               virt_lines_above = false,
             })
           end
