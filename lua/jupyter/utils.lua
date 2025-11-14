@@ -192,6 +192,35 @@ function M.find_code_block(opts)
     return prev
   end
 
+  local function fold_parent_bounds()
+    if not include_subcells then
+      return nil
+    end
+    local lnum = cur + 1
+    local fold_start = vim.fn.foldclosed(lnum)
+    if fold_start == -1 then
+      return nil
+    end
+    local fold_end = vim.fn.foldclosedend(lnum)
+    if not fold_end or fold_end == -1 then
+      return nil
+    end
+    local start0 = math.max(fold_start - 1, 0)
+    local marker_info = state.markers[start0]
+    if not marker_info or marker_info.type ~= "parent" then
+      return nil
+    end
+    local s = math.min(start0 + 1, math.max(line_count - 1, 0))
+    local e = math.max(s, math.min(fold_end - 1, line_count - 1))
+    local next_parent = state.parent_next and state.parent_next[start0] or nil
+    return s, e, { marker_row = start0, marker = marker_info, next_marker_row = next_parent }
+  end
+
+  local fold_s, fold_e, fold_meta = fold_parent_bounds()
+  if fold_s then
+    return fold_s, fold_e, fold_meta
+  end
+
   local current_line = vim.api.nvim_buf_get_lines(bufnr, cur, cur + 1, false)[1] or ""
   local marker_row
   if is_marker_line(current_line) then
