@@ -219,6 +219,10 @@ The plugin recognizes Jupyter-style cell markers:
 - When cursor is inside a cell, that entire cell is executed
 - Files without any markers will show a warning
 
+**Highlight Groups:**
+- `CellLineBackground` / `CellLineBG` control the header text and borders for parent `#%%` markers
+- `CellLineSubBackground` / `CellLineSubBG` apply to `##%%` subcells (Default-linked to the parent groups so you can override them independently)
+
 ## 🔍 Output Display
 
 ### Inline Virtual Text

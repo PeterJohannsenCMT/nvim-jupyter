@@ -299,6 +299,11 @@ Cell Behavior:
 - When the cursor is inside a cell, that entire cell is executed
 - Files without any markers will show a warning when trying to run cells
 
+Highlight groups:~
+- `CellLineBackground` / `CellLineBG` style parent `#%%` markers
+- `CellLineSubBackground` / `CellLineSubBG` style `##%%` subcells (linked to
+  the parent groups by default so they can be overridden independently)
+
 Example file structure: >
     #%% Import libraries
     import numpy as np
