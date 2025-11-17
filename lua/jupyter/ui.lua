@@ -457,7 +457,6 @@ function M.highlight_cells()
   local width = vim.api.nvim_win_get_width(winid)
 	vim.api.nvim_buf_clear_namespace(0, ns, 0, -1)
   local cursor_line = vim.api.nvim_win_get_cursor(winid)[1] - 1
-  local in_insert_mode = vim.fn.mode() == "i"
 
   vim.api.nvim_buf_clear_namespace(bufnr, ns_bg, 0, -1)
   vim.api.nvim_buf_clear_namespace(bufnr, ns_sign, 0, -1)
@@ -478,31 +477,31 @@ function M.highlight_cells()
 	_G.CurrentCell = nil
   for idx, row in ipairs(marker_rows) do
     local marker = marker_map[row]
-    if marker then
+      if marker then
       if row <= cursor_line then
 			_G.CurrentCell = row
 		end
 
-      if not (in_insert_mode and row == cursor_line) then
-        local label
-        if marker.type == "sub" then
-          local letter = marker.letter or utils.subcell_letter(marker.sub_index)
-          label = string.format("Cell %d%s:", marker.parent_index or idx, letter or "")
-        else
-          label = string.format("Cell %d:", marker.parent_index or idx)
-        end
+      local label
+      if marker.type == "sub" then
+        local letter = marker.letter or utils.subcell_letter(marker.sub_index)
+        label = string.format("Cell %d%s:", marker.parent_index or idx, letter or "")
+      else
+        label = string.format("Cell %d:", marker.parent_index or idx)
+      end
 
-        local trimmed = vim.trim(marker.text or "")
-        local full_display = trimmed == "" and label or (label .. " " .. trimmed)
-        local header_hl = get_cell_highlight(marker.type, "header") or "CellLineBackground"
-        local border_hl = get_cell_highlight(marker.type, "border") or "CellLineBG"
+      local trimmed = vim.trim(marker.text or "")
+      local full_display = trimmed == "" and label or (label .. " " .. trimmed)
+      local header_hl = get_cell_highlight(marker.type, "header") or "CellLineBackground"
+      local border_hl = get_cell_highlight(marker.type, "border") or "CellLineBG"
 
-        local text_width = vim.fn.strdisplaywidth(full_display)
-        local padding_len = math.max(0, width - text_width)
-        local padding = string.rep(" ", padding_len)
-        local padding_top = string.rep("▔", width)
-        local padding_bottom = string.rep("▁", width)
+      local text_width = vim.fn.strdisplaywidth(full_display)
+      local padding_len = math.max(0, width - text_width)
+      local padding = string.rep(" ", padding_len)
+      local padding_top = string.rep("▔", width)
+      local padding_bottom = string.rep("▁", width)
 
+      if row ~= cursor_line then
         vim.api.nvim_buf_set_extmark(bufnr, ns_sign, row, 0, {
           virt_text = {
             { full_display .. padding, header_hl },
@@ -510,31 +509,31 @@ function M.highlight_cells()
           virt_text_pos = "overlay",
           hl_mode = "combine",
         })
+      end
 
-        vim.api.nvim_buf_add_highlight(bufnr, ns_linehl, header_hl, row, 0, -1)
+      vim.api.nvim_buf_add_highlight(bufnr, ns_linehl, header_hl, row, 0, -1)
 
-        if ui_cfg.show_cell_borders and not is_outbuf then
-          local next_row = marker_rows[idx + 1]
-          local content_start = math.min(row + 1, last_line)
-          local content_end = next_row and (next_row - 1) or last_line
+      if ui_cfg.show_cell_borders and not is_outbuf then
+        local next_row = marker_rows[idx + 1]
+        local content_start = math.min(row + 1, last_line)
+        local content_end = next_row and (next_row - 1) or last_line
 
-          if content_start > content_end then
-            content_start = row
-            content_end = row
-          end
+        if content_start > content_end then
+          content_start = row
+          content_end = row
+        end
 
-          local has_content = content_start > row
+        local has_content = content_start > row
 
-          if has_content then
-            vim.api.nvim_buf_set_extmark(bufnr, ns, content_start, 0, {
-              virt_lines = { { { padding_top, border_hl } } },
-              virt_lines_above = true,
-            })
-            vim.api.nvim_buf_set_extmark(bufnr, ns, content_end, 0, {
-              virt_lines = { { { padding_bottom, border_hl } } },
-              virt_lines_above = false,
-            })
-          end
+        if has_content then
+          vim.api.nvim_buf_set_extmark(bufnr, ns, content_start, 0, {
+            virt_lines = { { { padding_top, border_hl } } },
+            virt_lines_above = true,
+          })
+          vim.api.nvim_buf_set_extmark(bufnr, ns, content_end, 0, {
+            virt_lines = { { { padding_bottom, border_hl } } },
+            virt_lines_above = false,
+          })
         end
       end
     end
