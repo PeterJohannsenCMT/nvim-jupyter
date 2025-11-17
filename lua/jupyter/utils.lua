@@ -152,6 +152,29 @@ function M.subcell_letter(idx)
   return letter_for_index(idx)
 end
 
+-- Return marker info for the cell that contains the cursor.
+-- If there is no marker (e.g. a file without any #%% markers), returns nil.
+function M.current_cell_marker(opts)
+  opts = opts or {}
+  local include_subcells = opts.include_subcells ~= false
+  local _, _, meta = M.find_code_block({ include_subcells = include_subcells })
+  if not meta or not meta.marker then
+    return nil
+  end
+  return meta.marker
+end
+
+-- Return the label text for the current cell marker (text after #%%/##%%).
+-- Returns nil if there is no current marker; returns an empty string if the marker
+-- is present but has no trailing text.
+function M.get_current_cell_title(opts)
+  local marker = M.current_cell_marker(opts)
+  if not marker then
+    return nil
+  end
+  return marker.text or ""
+end
+
 -- Return 0-based (s, e), inclusive, for the cell that contains the cursor.
 -- Policy:
 --   • "#%%" denotes a parent cell and "##%%" denotes a sub-cell.

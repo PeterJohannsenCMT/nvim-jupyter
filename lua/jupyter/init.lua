@@ -62,6 +62,11 @@ function M.eval_all_above()
   kernel.execute(table.concat(lines, "\n"), current_line0)
 end
 
+-- Expose the current cell title (text after #%% / ##%%) for statuslines, etc.
+function M.get_current_cell_title(opts)
+  return utils.get_current_cell_title(opts)
+end
+
 -- Optional setup hook (allows overriding config elsewhere)
 function M.setup(opts)
   if not opts then return end
