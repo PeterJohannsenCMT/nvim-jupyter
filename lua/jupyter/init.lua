@@ -285,6 +285,21 @@ vim.api.nvim_create_autocmd("FileType", {
         end,
       }
     )
+    vim.api.nvim_create_autocmd(
+      { "CursorMoved", "CursorMovedI" },
+      {
+        buffer = args.buf,
+        callback = function()
+          if vim.api.nvim_get_current_buf() ~= args.buf then return end
+          local p = require("jupyter.ui")
+          vim.schedule(function()
+            if vim.api.nvim_get_current_buf() == args.buf then
+              p.highlight_cells()
+            end
+          end)
+        end,
+      }
+    )
     -- Separate autocmd for sign updates (triggered on cursor events and fold operations)
     vim.api.nvim_create_autocmd(
       { "CursorMoved", "CursorMovedI", "CursorHold", "CursorHoldI" },
