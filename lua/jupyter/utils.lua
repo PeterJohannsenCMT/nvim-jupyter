@@ -1,3 +1,4 @@
+---@diagnostic disable: undefined-global
 local M = {}
 
 local marker_state_cache = {}
@@ -297,6 +298,70 @@ function M.first_line_of_next_cell_from(row0)
     end
   end
   return nil
+end
+
+local function marker_label(marker)
+  if not marker then
+    return ""
+  end
+
+  local idx = marker.parent_index and tostring(marker.parent_index) or ""
+  local suffix = (marker.type == "sub" and marker.letter) and marker.letter or ""
+  local numbering = (idx .. suffix):gsub("%s+", "")
+
+  local fallback
+  if marker.type == "sub" then
+    fallback = numbering ~= "" and ("Subcell " .. numbering) or "Subcell"
+  else
+    fallback = numbering ~= "" and ("Cell " .. numbering) or "Cell"
+  end
+
+  local title = (marker.text and marker.text ~= "") and marker.text or fallback
+  if numbering ~= "" then
+    return string.format("Cell %s: %s", numbering, title)
+  end
+  return title
+end
+
+-- Populate the quickfix list with all cell/subcell markers in a buffer.
+-- options:
+--   bufnr: target buffer (default: current)
+--   open: whether to open quickfix after populating (default: true)
+--   title: optional quickfix title
+function M.populate_cell_quickfix(opts)
+  opts = opts or {}
+  local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+
+  local state = M.get_marker_state(bufnr)
+  if not state or #state.order == 0 then
+    vim.notify("Jupyter: no cell markers found in buffer", vim.log.levels.WARN)
+    return
+  end
+
+  local items = {}
+  for _, row in ipairs(state.order) do
+    local marker = state.markers[row]
+    if marker then
+      local prefix = marker.type == "sub" and "  " or ""
+      table.insert(items, {
+        bufnr = bufnr,
+        lnum = row + 1,
+        col = 1,
+        text = prefix .. marker_label(marker),
+      })
+    end
+  end
+
+  local title = opts.title
+    or string.format("Jupyter cells: %s", vim.api.nvim_buf_get_name(bufnr))
+  vim.fn.setqflist({}, " ", { title = title, items = items })
+  if opts.open ~= false then
+    pcall(vim.cmd, "copen")
+  end
+  return items
 end
 
 return M
