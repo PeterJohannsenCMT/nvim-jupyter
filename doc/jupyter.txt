@@ -303,6 +303,9 @@ Highlight groups:~
 - `CellLineBackground` / `CellLineBG` style parent `#%%` markers
 - `CellLineSubBackground` / `CellLineSubBG` style `##%%` subcells (linked to
   the parent groups by default so they can be overridden independently)
+- Metadata comments written as `#:: something ::` are rendered with virtual
+  text when `ui.highlight_metadata` is enabled; customize the colors via
+  `ui.metadata_hl` (a table with `fg` / `bg` or a highlight group name).
 
 Example file structure: >
     #%% Import libraries
