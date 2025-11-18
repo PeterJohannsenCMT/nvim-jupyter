@@ -222,6 +222,7 @@ The plugin recognizes Jupyter-style cell markers:
 **Highlight Groups:**
 - `CellLineBackground` / `CellLineBG` control the header text and borders for parent `#%%` markers
 - `CellLineSubBackground` / `CellLineSubBG` apply to `##%%` subcells (Default-linked to the parent groups so you can override them independently)
+- Metadata comments in the form `#:: something ::` can be highlighted with virtual text when `ui.highlight_metadata` is `true`; customize the colors with `ui.metadata_hl` (table with `fg`/`bg`) or set it to a highlight group name.
 
 ## 🔍 Output Display
 

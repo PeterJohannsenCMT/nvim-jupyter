@@ -27,6 +27,11 @@ local M = {
 	},
 	ui = {
 		show_cell_borders = true,  -- Show virtual lines above/below #%% markers
+		highlight_metadata = true,
+		metadata_hl = {
+			fg = "#a8c0f9",
+			bg = "#232c4e",
+		},
 	},
 	fold = {
 		close_cells_on_open = false,  -- Automatically close all folds when opening a Python file with #%% markers

@@ -405,6 +405,7 @@ end
 local ns_bg = vim.api.nvim_create_namespace("cell_line_background")
 local ns_sign = vim.api.nvim_create_namespace("cell_signs")
 local ns_linehl = vim.api.nvim_create_namespace("cell_line_highlight")
+local ns_metadata = vim.api.nvim_create_namespace("jupyter-metadata")
 
 local CELL_HIGHLIGHT_SLOTS = {
   header = {
@@ -432,12 +433,80 @@ end
 local ns = vim.api.nvim_create_namespace('my-virt-lines')
 
 local function get_ui_cfg()
-  local defaults = { show_cell_borders = true }
+  local defaults = {
+    show_cell_borders = true,
+    highlight_metadata = true,
+    metadata_hl = {
+      fg = "#d8dee9",
+      bg = "#434c5e",
+    },
+  }
   local ok, cfg = pcall(require, "jupyter.config")
   if ok and type(cfg) == "table" and type(cfg.ui) == "table" then
     for k, v in pairs(cfg.ui) do defaults[k] = v end
   end
   return defaults
+end
+
+local DEFAULT_METADATA_HL = {
+  fg = "#d8dee9",
+  bg = "#434c5e",
+}
+
+local function resolve_metadata_hl_group(ui_cfg)
+  if not ui_cfg.highlight_metadata then
+    return nil
+  end
+  local hl = ui_cfg.metadata_hl
+  if type(hl) == "string" and hl ~= "" then
+    return hl
+  end
+
+  local opts = {}
+  for k, v in pairs(DEFAULT_METADATA_HL) do opts[k] = v end
+  if type(hl) == "table" then
+    for k, v in pairs(hl) do opts[k] = v end
+  end
+
+  opts.default = false
+  local group = "JupyterMetadata"
+  pcall(vim.api.nvim_set_hl, 0, group, opts)
+  return group
+end
+
+local METADATA_PATTERN = "^%s*#%s*::%s*(.-)%s*::%s*$"
+local metadata_cache = {}
+
+local function get_metadata_lines(bufnr)
+  local tick = vim.api.nvim_buf_get_changedtick(bufnr)
+  local cached = metadata_cache[bufnr]
+  if cached and cached.tick == tick then
+    return cached.items
+  end
+
+  local items = {}
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  for idx, line in ipairs(lines) do
+    local text = line:match(METADATA_PATTERN)
+    if text then
+      local prefix = line:match("^(%s*#%s*::%s*)") or ""
+      local suffix = line:match("(%s*::%s*)$") or ""
+      local line_width = vim.fn.strdisplaywidth(line)
+      local prefix_width = vim.fn.strdisplaywidth(prefix)
+      local suffix_width = vim.fn.strdisplaywidth(suffix)
+      local display = string.rep(" ", prefix_width) .. text .. string.rep(" ", suffix_width)
+      local display_width = vim.fn.strdisplaywidth(display)
+      table.insert(items, {
+        row = idx - 1,
+        text = text,
+        display = display,
+        pad = math.max(line_width, display_width) - display_width,
+      })
+    end
+  end
+
+  metadata_cache[bufnr] = { tick = tick, items = items }
+  return items
 end
 
 local function replace_with_mysign(bufnr, lnum)
@@ -461,11 +530,29 @@ function M.highlight_cells()
   vim.api.nvim_buf_clear_namespace(bufnr, ns_bg, 0, -1)
   vim.api.nvim_buf_clear_namespace(bufnr, ns_sign, 0, -1)
   vim.api.nvim_buf_clear_namespace(bufnr, ns_linehl, 0, -1)
+  vim.api.nvim_buf_clear_namespace(bufnr, ns_metadata, 0, -1)
 
   local ui_cfg = get_ui_cfg()
+  local metadata_hl = resolve_metadata_hl_group(ui_cfg)
 
   -- Check if this is the outbuf - if so, don't add virtual lines
   local is_outbuf = vim.b[bufnr].is_outbuf == true
+
+  if ui_cfg.highlight_metadata and metadata_hl and not is_outbuf then
+    for _, meta in ipairs(get_metadata_lines(bufnr)) do
+      if meta.row ~= cursor_line then
+        local padding = ""
+        if meta.pad and meta.pad > 0 then padding = string.rep(" ", meta.pad) end
+        pcall(vim.api.nvim_buf_set_extmark, bufnr, ns_metadata, meta.row, 0, {
+          virt_text = {
+            { meta.display .. padding, metadata_hl },
+          },
+          virt_text_pos = "overlay",
+          hl_mode = "combine",
+        })
+      end
+    end
+  end
 
   local state = utils.get_marker_state(bufnr)
   local marker_rows = state.order or {}
