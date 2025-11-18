@@ -29,8 +29,8 @@ local M = {
 		show_cell_borders = true,  -- Show virtual lines above/below #%% markers
 		highlight_metadata = true,
 		metadata_hl = {
-			fg = "#a8c0f9",
-			bg = "#232c4e",
+			fg = "#88a0f9",
+			bg = "#10101e",
 		},
 	},
 	fold = {

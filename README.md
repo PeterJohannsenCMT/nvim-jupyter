@@ -147,6 +147,9 @@ The plugin automatically sets up these keybindings for Python files:
 - `:JupyterToggleOut` - Toggle the output split pane
 - `:JupyterClearAll` - Clear all inline virtual text output
 
+### Navigation
+- `:JupyterCellToc[!]` - Populate quickfix with all cell/subcell titles (bang to avoid opening quickfix)
+
 ## ⚙️ Configuration
 
 The plugin works out of the box, but you can customize it:

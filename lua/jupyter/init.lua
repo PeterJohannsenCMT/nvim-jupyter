@@ -206,6 +206,12 @@ vim.api.nvim_create_user_command("JupyterUpdateSigns", function()
   require("jupyter.ui").update_sign_positions(bufnr)
 end, {})
 
+vim.api.nvim_create_user_command("JupyterCellToc", function(opts)
+  require("jupyter.utils").populate_cell_quickfix({ open = not opts.bang })
+end, {
+  bang = true,
+  desc = "Send all cell/subcell titles to the quickfix list",
+})
 
 -- Default buffer-local keymaps for Python; safe and non-invasive
 vim.api.nvim_create_autocmd("FileType", {
