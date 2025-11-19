@@ -18,17 +18,21 @@ A modern Neovim plugin that enables seamless interaction with Jupyter kernels di
 
 - Neovim 0.8+
 - Python 3.7+
-- `jupyter-client` Python package
-- A Jupyter kernel (typically `python3` or `ipython`)
+- `ipykernel` python package
 
-### Installation of Python Dependencies
+### Minimal conda environment
+
+```env.yaml
+name: jupytertest
+dependencies:
+  - python=3.13
+  - ipykernel=6.30
+```
+
+Create the environment using 
 
 ```bash
-# Using pip
-pip install jupyter-client
-
-# Using conda
-conda install jupyter-client
+conda create -f env.yaml
 ```
 
 ## 📦 Installation
