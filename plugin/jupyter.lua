@@ -7,6 +7,7 @@ vim.g.loaded_nvim_jupyter = true
 -- Load the module that defines user commands and keymaps.
 -- If you want to pass options, call require('jupyter').setup(...) in your init.
 pcall(require, "jupyter.init")
+pcall(require, "jupyter.diagnostics")
 
 -- Kill the bridge/kernel when Neovim exits
 vim.api.nvim_create_autocmd({ "VimLeavePre", "ExitPre" }, {
