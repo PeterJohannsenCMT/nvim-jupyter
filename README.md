@@ -178,6 +178,15 @@ require("jupyter").setup({
     auto_scroll = true,      -- scroll to latest output
     focus_on_open = false,   -- don't steal focus when opening
   },
+
+  -- IPython pager output (e.g. function? / function??)
+  pager = {
+    split = "right",       -- "bottom" or "right" split for pager text
+    height = 15,
+    width = 60,
+    focus_on_open = false,  -- show docs without moving cursor
+    filetype = "markdown", -- syntax highlight inside pager split
+  },
   
   -- Interrupt behavior
   interrupt = {

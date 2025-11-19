@@ -390,6 +390,10 @@ local function ensure_bridge()
       out.append_markdown(msg.seq, msg.value or "")
       return
 
+    elseif t == "pager" then
+      out.show_pager(msg.value or "")
+      return
+
     elseif t == "image" then
       out.append(msg.seq, ("[image saved: %s]"):format(msg.path or ""))
       return
