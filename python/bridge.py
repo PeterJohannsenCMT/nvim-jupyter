@@ -19,6 +19,7 @@ kc = None
 _current = None            # {"seq": int, "msg_id": str}
 _queue = deque()
 _outbox = []               # batched messages
+_shell_pending = {}        # msg_id -> seq
 
 def send(obj):
     _outbox.append(obj)
@@ -101,10 +102,11 @@ def _start_kernel(kernel, cwd):
     send({"type": "ready"})
 
 def _restart_kernel():
-    global kc, _current, _queue
+    global kc, _current, _queue, _shell_pending
     _safe_stop_channels()
     _current = None
     _queue.clear()
+    _shell_pending.clear()
     km.restart_kernel(now=True)
     kc = km.client()
     kc.start_channels()
@@ -112,8 +114,9 @@ def _restart_kernel():
     send({"type": "ready"})
 
 def _shutdown():
-    global km, kc, _current
+    global km, kc, _current, _shell_pending
     _current = None
+    _shell_pending.clear()
     _safe_stop_channels()
     _safe_shutdown_kernel(now=True)
     km = None
@@ -175,6 +178,50 @@ def _drain_iopub_once():
         send({"type": "done", "seq": _current["seq"]})
         _current = None
 
+def _drain_shell_once():
+    global _shell_pending
+    if not _kernel_ready():
+        return
+    ch = getattr(kc, "shell_channel", None)
+    if ch is None:
+        return
+    try:
+        msg = ch.get_msg(timeout=0.0)
+    except Exception:
+        return
+    if not msg:
+        return
+
+    parent = msg.get("parent_header", {})
+    msg_id = parent.get("msg_id")
+    if not msg_id:
+        return
+
+    seq = _shell_pending.get(msg_id)
+    if seq is None:
+        return
+
+    if msg.get("header", {}).get("msg_type") != "execute_reply":
+        _shell_pending.pop(msg_id, None)
+        return
+
+    payloads = msg.get("content", {}).get("payload") or []
+    for payload in payloads:
+        if not isinstance(payload, dict):
+            continue
+        if payload.get("source") != "page":
+            continue
+        text = payload.get("text")
+        if isinstance(text, list):
+            text = "\n".join(text)
+        if not text:
+            data = payload.get("data") or {}
+            text = (data.get("text/markdown") or data.get("text/plain") or data.get("text/html"))
+        if text:
+            send({"type": "pager", "seq": seq, "value": text})
+
+    _shell_pending.pop(msg_id, None)
+
 def _drain_stdin_once():
     """Forward input_request to Neovim."""
     if not _kernel_ready():
@@ -198,12 +245,13 @@ def _drain_stdin_once():
         })
 
 def _maybe_start_next():
-    global _current
+    global _current, _shell_pending
     if _current or not _queue or not _kernel_ready():
         return
     seq, code = _queue.popleft()
     msg_id = kc.execute(code, store_history=True, allow_stdin=True)
     _current = {"seq": seq, "msg_id": msg_id}
+    _shell_pending[msg_id] = seq
 
 # ---------- command handling ----------
 def _handle_command(req):
@@ -272,6 +320,7 @@ def main():
                         return
         _maybe_start_next()
         _drain_iopub_once()
+        _drain_shell_once()
         _drain_stdin_once()
         flush_outbox()
 

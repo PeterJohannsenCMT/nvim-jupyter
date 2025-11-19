@@ -16,8 +16,25 @@ local function get_out_cfg()
   return merged
 end
 
+local function get_pager_cfg()
+  local defaults = {
+    split = "right",
+    height = 15,
+    width = 60,
+    focus_on_open = false,
+    filetype = "markdown",
+  }
+  local ok, cfg = pcall(require, "jupyter.config")
+  local pager_cfg = (ok and type(cfg) == "table" and cfg.pager) or {}
+  local merged = {}; for k,v in pairs(defaults) do merged[k]=v end
+  for k,v in pairs(pager_cfg or {}) do merged[k]=v end
+  return merged
+end
+
 local M = {}
 local out_bufnr, out_winid = nil, nil
+local pager_bufnr, pager_winid = nil, nil
+local close_pager_window
 -- local highlight_timer = nil
 
 -- per-seq cell state
@@ -129,6 +146,33 @@ local function ensure_buf()
   return out_bufnr
 end
 
+local function ensure_pager_buf(cfg)
+  if pager_bufnr and api.nvim_buf_is_valid(pager_bufnr) then return pager_bufnr end
+
+  pager_bufnr = api.nvim_create_buf(false, true)
+  api.nvim_buf_set_option(pager_bufnr, "buftype", "nofile")
+  api.nvim_buf_set_option(pager_bufnr, "bufhidden", "wipe")
+  local ft = cfg and cfg.filetype or "markdown"
+  if ft and ft ~= "" then
+    pcall(api.nvim_buf_set_option, pager_bufnr, "filetype", ft)
+  end
+
+  api.nvim_create_autocmd({"BufDelete", "BufWipeout"}, {
+    buffer = pager_bufnr,
+    callback = function()
+      pager_bufnr = nil
+      pager_winid = nil
+    end,
+    once = true,
+  })
+
+  vim.keymap.set("n", "q", function()
+    close_pager_window()
+  end, { buffer = pager_bufnr, silent = true, nowait = true })
+
+  return pager_bufnr
+end
+
 local function open_window()
   local cfg = get_out_cfg()
   local prev = api.nvim_get_current_win()
@@ -167,6 +211,39 @@ local function open_window()
   
   -- Start the highlight maintenance timer when window opens
   -- start_highlight_timer()
+end
+
+local function open_pager_window(cfg)
+  local prev = api.nvim_get_current_win()
+  local buf = ensure_pager_buf(cfg)
+
+  if cfg.split == "right" then
+    vim.cmd(("botright %dvsplit"):format(tonumber(cfg.width) or 60))
+  else
+    vim.cmd(("botright %dsplit"):format(tonumber(cfg.height) or 15))
+  end
+
+  pager_winid = api.nvim_get_current_win()
+  api.nvim_win_set_buf(pager_winid, buf)
+
+  if cfg.focus_on_open ~= true and api.nvim_win_is_valid(prev) then
+    api.nvim_set_current_win(prev)
+  end
+end
+
+close_pager_window = function()
+  if pager_winid and api.nvim_win_is_valid(pager_winid) then
+    pcall(api.nvim_win_close, pager_winid, true)
+    pager_winid = nil
+    return
+  end
+  if pager_bufnr and api.nvim_buf_is_valid(pager_bufnr) then
+    for _, win in ipairs(api.nvim_list_wins()) do
+      if api.nvim_win_is_valid(win) and api.nvim_win_get_buf(win) == pager_bufnr then
+        pcall(api.nvim_win_close, win, true)
+      end
+    end
+  end
 end
 
 -- Function to ensure outbuf window always has correct highlight
@@ -504,6 +581,32 @@ function M.append_markdown(seq, md)
   if s == "" or s:match("^%s*$") then return end
   ensure_started(seq)
   append_lines({ "", s, "" })
+end
+
+
+function M.show_pager(text)
+  local cfg = get_pager_cfg()
+  local buf = ensure_pager_buf(cfg)
+
+  if not (pager_winid and api.nvim_win_is_valid(pager_winid)) then
+    open_pager_window(cfg)
+  end
+
+  local normalized = tostring(text or ""):gsub("\r\n", "\n")
+  normalized = strip_ansi(normalized)
+  local lines = vim.split(normalized, "\n", { plain = true })
+  if #lines == 0 then lines = { "" } end
+
+  api.nvim_buf_set_option(buf, "modifiable", true)
+  api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  api.nvim_buf_set_option(buf, "modifiable", false)
+
+  if pager_winid and api.nvim_win_is_valid(pager_winid) then
+    api.nvim_win_set_cursor(pager_winid, { 1, 0 })
+    if cfg.focus_on_open then
+      api.nvim_set_current_win(pager_winid)
+    end
+  end
 end
 
 
