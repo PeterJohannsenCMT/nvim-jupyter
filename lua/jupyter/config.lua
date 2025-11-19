@@ -16,7 +16,7 @@ local M = {
 		split = "right",        -- where to show pager output
 		height = 15,
 		width = 60,
-		focus_on_open = true,   -- stay in code window by default
+		focus_on_open = false,   -- stay in code window by default
 		filetype = "markdown",
 	},
 	interrupt = {
