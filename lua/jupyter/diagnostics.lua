@@ -10,6 +10,18 @@ local function is_doc_lookup_line(line)
   return trimmed:match("%?%??$") ~= nil
 end
 
+local function is_magic_line(line)
+  if not line then return false end
+  local trimmed = line:match("^%s*(.-)%s*$")
+  if not trimmed or trimmed == "" then return false end
+  if trimmed:sub(1, 1) == "#" then return false end
+  return trimmed:sub(1, 1) == "%"
+end
+
+local function should_ignore_diagnostic(line)
+  return is_doc_lookup_line(line) or is_magic_line(line)
+end
+
 local function filter_pyright_diagnostics(err, result, ctx, config, original)
   if not result or type(result) ~= "table" then
     return original(err, result, ctx, config)
@@ -42,7 +54,7 @@ local function filter_pyright_diagnostics(err, result, ctx, config, original)
     local suppress = false
     if lnum then
       local line = lines[lnum + 1]
-      if is_doc_lookup_line(line) then
+      if should_ignore_diagnostic(line) then
         suppress = true
       end
     end
