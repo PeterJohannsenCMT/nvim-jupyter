@@ -364,4 +364,45 @@ function M.populate_cell_quickfix(opts)
   return items
 end
 
+-- Best-effort dotted identifier under the cursor (used for doc lookups).
+function M.expr_under_cursor(opts)
+  opts = opts or {}
+  local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return nil
+  end
+
+  local pos = vim.api.nvim_win_get_cursor(0)
+  local row0 = pos[1] - 1
+  local col0 = pos[2]
+  local line = vim.api.nvim_buf_get_lines(bufnr, row0, row0 + 1, false)[1] or ""
+  local len = #line
+  if len == 0 then
+    return nil
+  end
+
+  local idx = col0 + 1
+  if idx < 1 then idx = 1 end
+  if idx > len then idx = len end
+
+  local function is_ident(ch)
+    return ch ~= nil and ch:match("[%w_.]") ~= nil
+  end
+
+  local s, e = idx, idx
+  while s > 1 and is_ident(line:sub(s - 1, s - 1)) do
+    s = s - 1
+  end
+  while e < len and is_ident(line:sub(e + 1, e + 1)) do
+    e = e + 1
+  end
+
+  local raw = line:sub(s, e)
+  raw = raw:gsub("^%.*", ""):gsub("%.*$", ""):gsub("%.%.+", ".")
+  if raw == "" then
+    return nil
+  end
+  return raw
+end
+
 return M
