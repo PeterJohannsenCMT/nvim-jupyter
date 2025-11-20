@@ -419,6 +419,21 @@ local function ensure_bridge()
       out.show_pager(msg.value or "")
       return
 
+    elseif t == "inspect_reply" then
+      local text = msg.text or ""
+      if not msg.found or text == "" then
+        local expr = msg.expr or "expression"
+        vim.notify(("Jupyter: no documentation for %s"):format(expr), vim.log.levels.INFO)
+      else
+        out.show_pager(text)
+      end
+      return
+
+    elseif t == "inspect_error" then
+      local detail = msg.message or "Doc lookup failed"
+      vim.notify("Jupyter: " .. detail, vim.log.levels.WARN)
+      return
+
     elseif t == "image" then
       out.append(msg.seq, ("[image saved: %s]"):format(msg.path or ""))
       return
@@ -620,6 +635,28 @@ function M.resume()
     return
   end
   M.bridge:send({ type = "resume" })
+end
+
+-- Request documentation for the symbol under the cursor via Jupyter inspect.
+function M.doc_at_cursor()
+  if not ensure_bridge() then return end
+  if not ready then
+    vim.notify("Jupyter: kernel not ready (use :JupyterStart)", vim.log.levels.WARN)
+    return
+  end
+
+  local expr = utils.expr_under_cursor()
+  if not expr or expr == "" then
+    vim.notify("Jupyter: no identifier under cursor", vim.log.levels.WARN)
+    return
+  end
+
+  M.bridge:send({
+    type = "inspect",
+    expr = expr,
+    cursor_pos = #expr,
+    prefer_control = true,  -- try control channel so lookups work while busy
+  })
 end
 
 function M.eval_line()

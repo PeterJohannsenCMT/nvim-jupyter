@@ -20,6 +20,7 @@ _current = None            # {"seq": int, "msg_id": str}
 _queue = deque()
 _outbox = []               # batched messages
 _shell_pending = {}        # msg_id -> seq
+_inspect_pending = {}      # msg_id -> {"expr": str}
 
 def send(obj):
     _outbox.append(obj)
@@ -102,11 +103,12 @@ def _start_kernel(kernel, cwd):
     send({"type": "ready"})
 
 def _restart_kernel():
-    global kc, _current, _queue, _shell_pending
+    global kc, _current, _queue, _shell_pending, _inspect_pending
     _safe_stop_channels()
     _current = None
     _queue.clear()
     _shell_pending.clear()
+    _inspect_pending.clear()
     km.restart_kernel(now=True)
     kc = km.client()
     kc.start_channels()
@@ -114,9 +116,10 @@ def _restart_kernel():
     send({"type": "ready"})
 
 def _shutdown():
-    global km, kc, _current, _shell_pending
+    global km, kc, _current, _shell_pending, _inspect_pending
     _current = None
     _shell_pending.clear()
+    _inspect_pending.clear()
     _safe_stop_channels()
     _safe_shutdown_kernel(now=True)
     km = None
@@ -192,16 +195,21 @@ def _drain_shell_once():
     if not msg:
         return
 
-    parent = msg.get("parent_header", {})
+    msg_type = msg.get("header", {}).get("msg_type")
+    parent = msg.get("parent_header", {}) or {}
     msg_id = parent.get("msg_id")
     if not msg_id:
+        return
+
+    if msg_type == "inspect_reply":
+        _handle_inspect_reply(msg)
         return
 
     seq = _shell_pending.get(msg_id)
     if seq is None:
         return
 
-    if msg.get("header", {}).get("msg_type") != "execute_reply":
+    if msg_type != "execute_reply":
         _shell_pending.pop(msg_id, None)
         return
 
@@ -221,6 +229,22 @@ def _drain_shell_once():
             send({"type": "pager", "seq": seq, "value": text})
 
     _shell_pending.pop(msg_id, None)
+
+def _drain_control_once():
+    if not _kernel_ready():
+        return
+    ch = getattr(kc, "control_channel", None)
+    if ch is None:
+        return
+    try:
+        msg = ch.get_msg(timeout=0.0)
+    except Exception:
+        return
+    if not msg:
+        return
+
+    if msg.get("header", {}).get("msg_type") == "inspect_reply":
+        _handle_inspect_reply(msg)
 
 def _drain_stdin_once():
     """Forward input_request to Neovim."""
@@ -243,6 +267,73 @@ def _drain_stdin_once():
             "prompt": c.get("prompt", ""),
             "password": bool(c.get("password", False)),
         })
+
+def _render_inspect_data(data):
+    if not isinstance(data, dict):
+        return None
+    for key in ("text/markdown", "text/plain", "text/html"):
+        val = data.get(key)
+        if isinstance(val, list):
+            val = "\n".join(val)
+        if val:
+            return val
+    return None
+
+def _handle_inspect_reply(msg):
+    parent = msg.get("parent_header", {}) or {}
+    msg_id = parent.get("msg_id")
+    if not msg_id:
+        return
+
+    pending = _inspect_pending.pop(msg_id, None)
+    if pending is None:
+        return
+
+    content = msg.get("content", {}) or {}
+    status = content.get("status") or ""
+    if status == "error":
+        detail = "{}: {}".format(content.get("ename", "Error"), content.get("evalue", "")).strip()
+        send({"type": "inspect_error", "expr": pending.get("expr"), "message": detail})
+        return
+
+    if not content.get("found"):
+        send({"type": "inspect_reply", "expr": pending.get("expr"), "found": False, "text": ""})
+        return
+
+    text = _render_inspect_data(content.get("data") or {}) or ""
+    send({"type": "inspect_reply", "expr": pending.get("expr"), "found": True, "text": text})
+
+def _request_inspect(expr, cursor_pos=None, detail_level=0, prefer_control=True):
+    if not _kernel_ready():
+        send({"type": "inspect_error", "expr": expr, "message": "Kernel not running"})
+        return
+
+    if expr is None:
+        send({"type": "inspect_error", "expr": None, "message": "Empty expression"})
+        return
+
+    if cursor_pos is None:
+        cursor_pos = len(expr)
+
+    msg_id = None
+    try:
+        if prefer_control and getattr(kc, "control_channel", None):
+            msg = kc.session.msg("inspect_request", {
+                "code": expr,
+                "cursor_pos": int(cursor_pos),
+                "detail_level": int(detail_level or 0),
+            })
+            kc.control_channel.send(msg)
+            msg_id = msg["header"]["msg_id"]
+        else:
+            msg_id = kc.inspect(expr, cursor_pos=int(cursor_pos),
+                                detail_level=int(detail_level or 0))
+    except Exception as exc:
+        send({"type": "inspect_error", "expr": expr, "message": str(exc)})
+        return
+
+    if msg_id:
+        _inspect_pending[msg_id] = {"expr": expr}
 
 def _maybe_start_next():
     global _current, _shell_pending
@@ -284,6 +375,9 @@ def _handle_command(req):
             if km: _restart_kernel()
         elif typ == "shutdown":
             _shutdown(); send({"type": "bye"}); return False
+        elif typ == "inspect":
+            _request_inspect(req.get("expr"), req.get("cursor_pos"),
+                             req.get("detail"), req.get("prefer_control", True))
     except Exception as e:
         send({"type": "error", "seq": req.get("seq"),
               "ename": e.__class__.__name__,
@@ -321,6 +415,7 @@ def main():
         _maybe_start_next()
         _drain_iopub_once()
         _drain_shell_once()
+        _drain_control_once()
         _drain_stdin_once()
         flush_outbox()
 
