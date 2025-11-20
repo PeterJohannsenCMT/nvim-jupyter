@@ -13,6 +13,7 @@ A modern Neovim plugin that enables seamless interaction with Jupyter kernels di
 - **Auto-detection**: Automatically finds Python environments (conda/virtualenv)
 - **Split Pane Output**: Optional dedicated output buffer for detailed results
 - **Non-blocking**: Asynchronous execution keeps Neovim responsive
+- **IPython niceties**: Inline `?` / `??` doc lookups open in a pager split, and `%` line magics are expanded automatically
 
 ## 📋 Requirements
 
@@ -254,6 +255,11 @@ The plugin recognizes Jupyter-style cell markers:
 - **Images**: Saved to temp files with path displayed
 - **Markdown**: Rendered appropriately
 - **Scrolling**: Auto-scrolls to latest output
+
+## ❓ IPython Doc Lookups and Magics
+
+- End a symbol with `?` or `??` inside a cell (e.g. `np.linspace?`) to open IPython help in the configured pager split (see `pager` settings in the configuration). These lines are ignored by Pyright diagnostics so you can keep them in your code without warnings.
+- Lines starting with `%` are treated as IPython line magics and expanded to `get_ipython().run_line_magic(...)` before execution, so commands like `%time`, `%pip install ...`, or `%who` run as expected when sent from Neovim.
 
 ## 🏗️ Architecture
 
