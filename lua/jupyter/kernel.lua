@@ -285,6 +285,31 @@ local function compute_start_row(row, code)
   return start_row
 end
 
+-- Expand IPython-style line magics ("%time", "%pip", etc.) into explicit API calls
+-- so they execute correctly when sent as plain Python code.
+local function normalize_magic_lines(code)
+  if type(code) ~= "string" then return code end
+  local lines = vim.split(code, "\n", { plain = true })
+  local changed = false
+
+  for idx, line in ipairs(lines) do
+    local indent, rest = line:match("^(%s*)(.-)%s*$")
+    local trimmed = rest or ""
+    if trimmed:sub(1, 1) == "%" and trimmed:sub(1, 2) ~= "%%" then
+      local magic, args = trimmed:match("^%%(%S+)%s*(.*)$")
+      if magic then
+        lines[idx] = string.format("%sget_ipython().run_line_magic(%q, %q)", indent or "", magic, args or "")
+        changed = true
+      end
+    end
+  end
+
+  if not changed then
+    return code
+  end
+  return table.concat(lines, "\n")
+end
+
 local function extract_error_lineno(msg)
   local tb = msg and msg.traceback
   if not tb then return nil end
@@ -634,13 +659,14 @@ end
 -- Execute code from a given source row (0-based)
 function M.execute(code, row, marker_text)
   if not ensure_bridge() then return end
+  local send_code = normalize_magic_lines(code or "")
 
   -- Remember owner buffer to place signs/inline correctly
   M.owner_buf = vim.api.nvim_get_current_buf()
   if vim.g.jupyter_debug_handles then
     maybe_log_handles("before-exec", true)
   end
-  local start_row = compute_start_row(row, code)
+  local start_row = compute_start_row(row, send_code)
 
   ui.clear_diagnostics_range(M.owner_buf, start_row, row)
   -- Clear inline at run start to avoid appending on re-run
@@ -654,10 +680,10 @@ function M.execute(code, row, marker_text)
 
   out.start_cell(seq, marker_text)  -- open output header now, with optional marker text
 
-  table.insert(queue, { seq = seq, code = code })
+  table.insert(queue, { seq = seq, code = send_code })
   if ready and not inflight then
     inflight = true
-    M.bridge:send({ type = "execute", code = code, seq = seq })
+    M.bridge:send({ type = "execute", code = send_code, seq = seq })
   end
 end
 
