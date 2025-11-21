@@ -162,15 +162,21 @@ vim.api.nvim_create_autocmd({"BufWrite", "TextChanged", "TextChangedI", "BufWipe
   end
 })
 
----------------------------------------------------------------------
 -- keymaps & command
----------------------------------------------------------------------
+local function confirm_stop()
+  vim.ui.select({ "Stop kernel", "Cancel" }, { prompt = "Stop Jupyter kernel?" }, function(choice)
+    if choice == "Stop kernel" then
+      kernel.stop()
+    end
+  end)
+end
+
 vim.api.nvim_create_user_command("JupyterStart",      function() kernel.start()            end, {})
 vim.api.nvim_create_user_command("JupyterRestart",    function() kernel.restart()          end, {})
 vim.api.nvim_create_user_command("JupyterPause",      function() kernel.pause()            end, {})
 vim.api.nvim_create_user_command("JupyterResume",     function() kernel.resume()           end, {})
 vim.api.nvim_create_user_command("JupyterInterrupt",  function() kernel.interrupt()        end, {})
-vim.api.nvim_create_user_command("JupyterStop",       function() kernel.stop()             end, {})
+vim.api.nvim_create_user_command("JupyterStop",       confirm_stop, {})
 
 vim.api.nvim_create_user_command("JupyterRunLine",      function() kernel.eval_line()        end, {})
 vim.api.nvim_create_user_command("JupyterRunSelection", function() kernel.eval_selection()   end, {})
