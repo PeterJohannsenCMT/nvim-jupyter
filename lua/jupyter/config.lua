@@ -1,7 +1,8 @@
 local M = {
 	python_cmd = (vim.env.CONDA_PREFIX and (vim.env.CONDA_PREFIX .. "/bin/python")) or "python3",
-  kernel_name   = "python3",  -- Jupyter kernel to start
+ kernel_name   = "python3",  -- Jupyter kernel to start
   bridge_script = nil,        -- Optional absolute path to python/bridge.py
+  env = {},                   -- Extra env vars for the bridge/kernel (e.g. PATH tweaks)
 
 	out = {
 		split       = "bottom",   -- "bottom" or "right"
@@ -19,10 +20,13 @@ local M = {
 		focus_on_open = false,   -- stay in code window by default
 		filetype = "markdown",
 	},
-	interrupt = {
-		drop_queue = true,
-		timeout_ms = 3000,
-		restart_on_timeout = true,
+ interrupt = {
+ 	drop_queue = true,
+ 	timeout_ms = 3000,
+ 	restart_on_timeout = true,
+ },
+	run = {
+		advance_to_next_cell = true, -- Whether smart run should jump to the next cell
 	},
 	inline = {
 		enabled    = true,        -- set to false to disable inline output

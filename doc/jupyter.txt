@@ -161,6 +161,18 @@ Manual installation: >
 :JupyterRunCellStay     Execute the current cell but keep cursor position
                         unchanged.
 
+                                                      *:JupyterRunCellSmart*
+:JupyterRunCellSmart    Execute the current cell. If run-advance is enabled
+                        (see |:JupyterRunCellAdvance|) the cursor moves to
+                        the next cell; otherwise it stays put.
+
+                                                   *:JupyterRunCellAdvance*
+:JupyterRunCellAdvance  Toggle or set the run-advance behavior used by
+                        |:JupyterRunCellSmart|. Usage:
+                        >
+                          :JupyterRunCellAdvance [on|off|toggle]
+                        <
+
                                                          *:JupyterRunAbove*
 :JupyterRunAbove        Execute all code from the beginning of the file up
                         to and including the current cursor line.
@@ -181,8 +193,9 @@ Note: Pause/Resume rely on POSIX signals and are not supported on Windows.
 The plugin automatically sets up these keybindings for Python files:
 
 Normal mode:
-  <CR>              Execute current cell               |:JupyterRunCell|
-  <leader>jC        Execute cell, stay in place       |:JupyterRunCellStay|
+  <leader>jx        Execute current cell               |:JupyterRunCellSmart|
+  <leader>jt        Toggle cell jumping                |:JupyterRunCellAdvance|
+  <leader>jC        Execute cell, stay in place        |:JupyterRunCellStay|
   <leader>jl        Execute current line               |:JupyterRunLine|
   <leader>ja        Execute all above cursor           |:JupyterRunAbove|
   <leader>jr        Start Jupyter kernel               |:JupyterStart|
@@ -211,6 +224,11 @@ passing options to the setup function: >
       
       -- Absolute path to bridge.py (usually auto-detected)
       bridge_script = nil,
+
+      -- Environment overrides for the bridge/kernel (helpful if PATH differs)
+      env = {
+        -- PATH = vim.env.PATH,
+      },
       
       -- Output pane settings
       out = {
@@ -227,6 +245,11 @@ passing options to the setup function: >
         drop_queue = true,        -- drop pending executions on interrupt
         timeout_ms = 3000,        -- timeout before forcing restart
         restart_on_timeout = true,-- restart kernel if interrupt times out
+      },
+
+      -- Run behavior
+      run = {
+        advance_to_next_cell = true, -- smart run jumps to next cell when true
       },
       
       -- Inline output display
