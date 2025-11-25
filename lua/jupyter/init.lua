@@ -4,6 +4,7 @@ local kernel = require "jupyter.kernel"
 local utils  = require "jupyter.utils"
 local ui  = require "jupyter.ui"
 local out    = require "jupyter.outbuf"
+local run_state  = require "jupyter.state"
 local M      = {}
 
 vim.g.jupyter_outbuf_hl = "JupyterOutput"
@@ -171,6 +172,33 @@ local function confirm_stop()
   end)
 end
 
+local function run_current_cell_stay()
+  local s, e = utils.find_code_block({ include_subcells = true })
+  if not s or not e then
+    return
+  end
+  local lines = vim.api.nvim_buf_get_lines(0, s, e + 1, false)
+  local empty = true
+  for _, L in ipairs(lines) do
+    if not L:match("^%s*$") then
+      empty = false
+      break
+    end
+  end
+  if empty then
+    return
+  end
+  kernel.execute(table.concat(lines, "\n"), e)
+end
+
+local function run_cell_smart()
+  if run_state.should_advance() then
+    kernel.eval_current_block()
+    return
+  end
+  run_current_cell_stay()
+end
+
 vim.api.nvim_create_user_command("JupyterStart",      function() kernel.start()            end, {})
 vim.api.nvim_create_user_command("JupyterRestart",    function() kernel.restart()          end, {})
 vim.api.nvim_create_user_command("JupyterPause",      function() kernel.pause()            end, {})
@@ -186,16 +214,31 @@ vim.api.nvim_create_user_command("JupyterDoc", function()
   kernel.doc_at_cursor()
 end, { desc = "Jupyter: show documentation for object under cursor" })
 vim.api.nvim_create_user_command("JupyterClearAll",      function() ui.clear_all(0) end, {})
-vim.api.nvim_create_user_command("JupyterRunCellStay", function()
-  utils = require("jupyter.utils")
-  local s, e = utils.find_code_block({ include_subcells = true })
-  if not s or not e then return end
-  local lines = vim.api.nvim_buf_get_lines(0, s, e + 1, false)
-  local empty = true
-  for _, L in ipairs(lines) do if not L:match("^%s*$") then empty = false; break end end
-  if empty then return end
-  require("jupyter.kernel").execute(table.concat(lines, "\n"), e)
-end, {})
+vim.api.nvim_create_user_command("JupyterRunCellStay", function() run_current_cell_stay() end, {})
+vim.api.nvim_create_user_command("JupyterRunCellSmart", function() run_cell_smart() end, {
+  desc = "Run cell; optionally advance depending on run advance setting",
+})
+vim.api.nvim_create_user_command("JupyterRunCellAdvance", function(opts)
+  local arg = (opts.args or ""):lower()
+  local new_value
+  if arg == "" or arg == "toggle" then
+    new_value = run_state.toggle_advance()
+  elseif arg == "on" or arg == "true" then
+    new_value = run_state.set_advance(true)
+  elseif arg == "off" or arg == "false" then
+    new_value = run_state.set_advance(false)
+  else
+    vim.notify("JupyterRunCellAdvance: expected 'on', 'off', or 'toggle'", vim.log.levels.WARN)
+    return
+  end
+  vim.notify("Jupyter: run cell advance " .. (new_value and "enabled" or "disabled"))
+end, {
+  nargs = "?",
+  complete = function()
+    return { "on", "off", "toggle" }
+  end,
+  desc = "Toggle or set whether smart run advances to next cell",
+})
 vim.api.nvim_create_user_command("JupyterToggleOut",  function() out.toggle()              end, {})
 
 vim.api.nvim_create_user_command("JupyterInterrupt", function()
@@ -227,7 +270,8 @@ vim.api.nvim_create_autocmd("FileType", {
 	pattern = { "python" },
 	callback = function(ev)
 		local buf = ev.buf
-		vim.keymap.set("n", "<CR>", "<cmd>JupyterRunCell<CR>",     { buffer = buf, desc = "Jupyter: run cell" })
+		vim.keymap.set("n", "<leader>jx", "<cmd>JupyterRunCellSmart<CR>",     { buffer = buf, desc = "Jupyter: execute cell" })
+		vim.keymap.set("n", "<leader>jt", "<cmd>JupyterRunCellAdvance toggle<CR>",     { buffer = buf, desc = "Jupyter: execute cell" })
 		vim.keymap.set("n", "<leader>jC", "<cmd>JupyterRunCellStay<CR>", { desc = "Jupyter: run cell (stay)" })
 		vim.keymap.set("n", "<leader>jl",  "<cmd>JupyterRunLine<CR>",      { buffer = buf, desc = "Jupyter: run line" })
 		vim.keymap.set("v", "<leader>js",  "<cmd>JupyterRunSelection<CR>", { buffer = buf, desc = "Jupyter: run selection" })

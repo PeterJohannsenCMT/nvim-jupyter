@@ -146,6 +146,8 @@ The plugin automatically sets up these keybindings for Python files:
 - `:JupyterRunSelection` - Execute visually selected text
 - `:JupyterRunCell` - Execute the current cell (defined by `#%%` markers)
 - `:JupyterRunCellStay` - Execute cell without moving cursor
+- `:JupyterRunCellSmart` - Execute cell; optionally advance to the next one based on the run-advance flag
+- `:JupyterRunCellAdvance [on|off|toggle]` - Configure or toggle whether smart run moves to the next cell
 - `:JupyterRunAbove` - Execute all code from start to cursor
 
 ### Output Management
@@ -172,6 +174,11 @@ require("jupyter").setup({
   
   -- Absolute path to bridge.py (usually auto-detected)
   bridge_script = nil,
+
+  -- Extra environment for the bridge/kernel (e.g. keep PATH from your login shell)
+  env = {
+    -- PATH = vim.env.PATH,
+  },
   
   -- Output pane settings
   out = {

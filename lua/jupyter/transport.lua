@@ -174,11 +174,33 @@ function M.spawn_bridge(script)
   end
   cfg.python_cmd = python_cmd
 
+  local env_map = vim.fn.environ()
+  if type(cfg.env) == "table" then
+    for k, v in pairs(cfg.env) do
+      env_map[k] = v
+    end
+  end
+
+  local function path_contains(dir, path)
+    if not path or path == "" then return false end
+    for entry in path:gmatch("([^:]+)") do
+      if entry == dir then return true end
+    end
+    return false
+  end
+
+  if not env_map.PATH or env_map.PATH == "" then
+    env_map.PATH = vim.env.PATH or "/usr/bin:/bin:/usr/sbin:/sbin"
+  end
+  if uv.fs_stat("/usr/bin/osascript") and not path_contains("/usr/bin", env_map.PATH) then
+    env_map.PATH = (env_map.PATH or "") .. (env_map.PATH and env_map.PATH ~= "" and ":" or "") .. "/usr/bin"
+  end
+
   local handle, pid = uv.spawn(python_cmd, {
     args  = { "-u", script },
     stdio = { stdin, stdout, stderr },
     cwd   = uv.cwd(),
-    env   = vim.fn.environ(),
+    env   = env_map,
   }, function(code, signal)
     if stdout and not stdout:is_closing() then stdout:close() end
     if stderr and not stderr:is_closing() then stderr:close() end
