@@ -756,9 +756,15 @@ function M.eval_current_block()
 
   M.execute(code, e, marker_text)  -- anchor at end row, pass marker text
 
-	local last_row0 = vim.api.nvim_buf_line_count(0)
-	if last_row0 > e+3 then
-		vim.api.nvim_win_set_cursor(0, {e+3, 0})
+	-- Move cursor to the start of the next cell (or EOF if none).
+	local next_row0 = utils.first_line_of_next_cell_from(e)
+	if next_row0 then
+		vim.api.nvim_win_set_cursor(0, { next_row0 + 1, 0 })
+	else
+		local last_row0 = vim.api.nvim_buf_line_count(0) - 1
+		if last_row0 >= 0 then
+			vim.api.nvim_win_set_cursor(0, { last_row0 + 1, 0 })
+		end
 	end
 end
 
