@@ -726,22 +726,23 @@ end
 
 -- Convenience: run the current cell (expects utils.find_code_block())
 function M.eval_current_block()
+  local bufnr = vim.api.nvim_get_current_buf()
   local s, e = utils.find_code_block({ include_subcells = true })
   if not s or not e then
     return
   end
-  local lines = vim.api.nvim_buf_get_lines(0, s, e + 1, false)
+  local lines = vim.api.nvim_buf_get_lines(bufnr, s, e + 1, false)
   local empty = true
   for _, L in ipairs(lines) do if not L:match("^%s*$") then empty = false; break end end
   if empty then return end
   local code = table.concat(lines, "\n")
-	ui.clear_range(M.owner_buf, s, e+1)
-	ui.clear_signs_range(M.owner_buf, s, e+1)
+	ui.clear_range(bufnr, s, e+1)
+	ui.clear_signs_range(bufnr, s, e+1)
 
   -- Extract the cell marker text (if s > 0, the marker is at s-1)
   local marker_text = "#%%"
   if s > 0 then
-    local marker_line = vim.api.nvim_buf_get_lines(0, s - 1, s, false)[1]
+    local marker_line = vim.api.nvim_buf_get_lines(bufnr, s - 1, s, false)[1]
     if marker_line then
       local mtype = utils.marker_type(marker_line)
       if mtype == "sub" then
