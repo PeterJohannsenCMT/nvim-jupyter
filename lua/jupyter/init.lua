@@ -173,11 +173,12 @@ local function confirm_stop()
 end
 
 local function run_current_cell_stay()
+  local bufnr = vim.api.nvim_get_current_buf()
   local s, e = utils.find_code_block({ include_subcells = true })
   if not s or not e then
     return
   end
-  local lines = vim.api.nvim_buf_get_lines(0, s, e + 1, false)
+  local lines = vim.api.nvim_buf_get_lines(bufnr, s, e + 1, false)
   local empty = true
   for _, L in ipairs(lines) do
     if not L:match("^%s*$") then
@@ -188,6 +189,8 @@ local function run_current_cell_stay()
   if empty then
     return
   end
+  ui.clear_range(bufnr, s, e + 1)
+  ui.clear_signs_range(bufnr, s, e + 1)
   kernel.execute(table.concat(lines, "\n"), e)
 end
 
