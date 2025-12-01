@@ -778,4 +778,78 @@ function M.eval_all_above()
   M.execute(code, current_line - 1)  -- anchor at end row
 end
 
+-- Run cells by their parent indices (list of integers)
+-- Example: M.run_cells_by_indices({1, 2, 5}) runs cells 1, 2, and 5
+function M.run_cells_by_indices(indices)
+  if not M.is_running() then
+    vim.notify("Jupyter: kernel not running (use :JupyterStart)", vim.log.levels.WARN)
+    return
+  end
+
+  local bufnr = vim.api.nvim_get_current_buf()
+  local state = utils.get_marker_state(bufnr)
+
+  if #state.order == 0 then
+    vim.notify("Jupyter: no cell markers found in buffer", vim.log.levels.WARN)
+    return
+  end
+
+  -- Sort indices to run in order
+  table.sort(indices)
+
+  -- Run each cell
+  for _, idx in ipairs(indices) do
+    -- Find the marker row for this parent index
+    local marker_row = nil
+    for row, marker in pairs(state.markers) do
+      if marker.type == "parent" and marker.parent_index == idx then
+        marker_row = row
+        break
+      end
+    end
+
+    if marker_row then
+      -- Get the cell bounds
+      local s = marker_row + 1
+      local nm = state.parent_next and state.parent_next[marker_row] or nil
+      local e = nm and (nm - 1) or (vim.api.nvim_buf_line_count(bufnr) - 1)
+
+      -- Get the cell lines
+      local lines = vim.api.nvim_buf_get_lines(bufnr, s, e + 1, false)
+
+      -- Check if empty
+      local empty = true
+      for _, L in ipairs(lines) do
+        if not L:match("^%s*$") then
+          empty = false
+          break
+        end
+      end
+
+      if not empty then
+        ui.clear_range(bufnr, s, e + 1)
+        ui.clear_signs_range(bufnr, s, e + 1)
+
+        -- Get marker text
+        local marker_line = vim.api.nvim_buf_get_lines(bufnr, marker_row, marker_row + 1, false)[1]
+        local marker_text = "#%%"
+        if marker_line then
+          local mtype = utils.marker_type(marker_line)
+          if mtype == "sub" then
+            local suffix = marker_line:match("^%s*#%s*#%s*%%%%(.*)$") or ""
+            marker_text = "##%%" .. suffix
+          elseif mtype == "parent" then
+            local suffix = marker_line:match("^%s*#%s*%%%%(.*)$") or ""
+            marker_text = "#%%" .. suffix
+          end
+        end
+
+        M.execute(table.concat(lines, "\n"), e, marker_text)
+      end
+    else
+      vim.notify("Jupyter: cell " .. idx .. " not found", vim.log.levels.WARN)
+    end
+  end
+end
+
 return M

@@ -405,4 +405,43 @@ function M.expr_under_cursor(opts)
   return raw
 end
 
+-- Parse a string like "0,1,2,6,7" or "1-9" into a list of cell indices.
+-- Supports:
+--   - Single numbers: "1" -> {1}
+--   - Comma-separated lists: "0,1,2,6,7" -> {0,1,2,6,7}
+--   - Ranges: "1-5" -> {1,2,3,4,5}
+--   - Mixed: "1,3-5,7" -> {1,3,4,5,7}
+function M.parse_cell_indices(input)
+  if not input or input == "" then
+    return {}
+  end
+
+  local indices = {}
+  local parts = vim.split(input, ",", { trimempty = true })
+
+  for _, part in ipairs(parts) do
+    part = vim.trim(part)
+
+    -- Check if it's a range (e.g., "1-9")
+    local start_idx, end_idx = part:match("^(%d+)%-(%d+)$")
+    if start_idx and end_idx then
+      start_idx = tonumber(start_idx)
+      end_idx = tonumber(end_idx)
+      if start_idx and end_idx then
+        for i = start_idx, end_idx do
+          table.insert(indices, i)
+        end
+      end
+    else
+      -- Single number
+      local num = tonumber(part)
+      if num then
+        table.insert(indices, num)
+      end
+    end
+  end
+
+  return indices
+end
+
 return M

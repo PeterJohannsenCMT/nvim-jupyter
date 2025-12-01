@@ -177,6 +177,16 @@ Manual installation: >
 :JupyterRunAbove        Execute all code from the beginning of the file up
                         to and including the current cursor line.
 
+                                                        *:JupyterRunCells*
+:JupyterRunCells {indices}
+                        Run multiple cells by their parent indices. Accepts
+                        input in the following formats:
+                        - Single numbers: :JupyterRunCells 1
+                        - Comma-separated: :JupyterRunCells 0,1,2
+                        - Ranges: :JupyterRunCells 1-5
+                        - Mixed: :JupyterRunCells 1,3-5,7
+                        Cells are executed in order regardless of input order.
+
                                                        *:JupyterToggleOut*
 :JupyterToggleOut       Toggle the output split pane. If closed, opens it.
                         If open, closes it.
@@ -498,6 +508,11 @@ require('jupyter.kernel').is_running()                  Check if kernel is activ
 require('jupyter.kernel').execute(code, row)           Execute code string,
                                                         show output at row
 
+require('jupyter.kernel').run_cells_by_indices(indices)
+                                                        Execute multiple cells by
+                                                        their parent indices.
+                                                        indices: list of integers
+
                                                      *require('jupyter.utils')*
 require('jupyter.utils').find_code_block()             Find current cell bounds
                                                         Returns (start, end) or
@@ -505,6 +520,10 @@ require('jupyter.utils').find_code_block()             Find current cell bounds
 
 require('jupyter.utils').first_line_of_next_cell_from(row)
                                                         Find next cell start
+
+require('jupyter.utils').parse_cell_indices(input)     Parse a string like "0,1,2"
+                                                        or "1-5" into a list of
+                                                        cell indices. Returns table
 
 Example usage: >
     -- Custom command to run cell and move to next

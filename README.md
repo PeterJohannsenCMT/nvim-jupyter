@@ -149,6 +149,7 @@ The plugin automatically sets up these keybindings for Python files:
 - `:JupyterRunCellSmart` - Execute cell; optionally advance to the next one based on the run-advance flag
 - `:JupyterRunCellAdvance [on|off|toggle]` - Configure or toggle whether smart run moves to the next cell
 - `:JupyterRunAbove` - Execute all code from start to cursor
+- `:JupyterRunCells <indices>` - Run multiple cells by index (e.g., `:JupyterRunCells 0,1,2` or `:JupyterRunCells 1-5` or `:JupyterRunCells 1,3-5,7`)
 
 ### Output Management
 - `:JupyterToggleOut` - Toggle the output split pane
