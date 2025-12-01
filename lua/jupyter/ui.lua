@@ -588,7 +588,7 @@ function M.highlight_cells()
       local padding_top = string.rep("▔", width)
       local padding_bottom = string.rep("▁", width)
 
-      if row ~= cursor_line then
+      if row ~= cursor_line and not is_outbuf then
         vim.api.nvim_buf_set_extmark(bufnr, ns_sign, row, 0, {
           virt_text = {
             { full_display .. padding, header_hl },
@@ -598,7 +598,9 @@ function M.highlight_cells()
         })
       end
 
-      vim.api.nvim_buf_add_highlight(bufnr, ns_linehl, header_hl, row, 0, -1)
+      if not is_outbuf then
+        vim.api.nvim_buf_add_highlight(bufnr, ns_linehl, header_hl, row, 0, -1)
+      end
 
       if ui_cfg.show_cell_borders and not is_outbuf then
         local next_row = marker_rows[idx + 1]
