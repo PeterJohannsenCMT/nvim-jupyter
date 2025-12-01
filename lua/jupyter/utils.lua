@@ -300,6 +300,87 @@ function M.first_line_of_next_cell_from(row0)
   return nil
 end
 
+-- Get the line number of the previous cell header relative to the cursor.
+-- Options:
+--   include_subcells: if false, only consider parent cells (default: true)
+--   one_based: if true, return 1-based line numbers (default: true for UI compatibility)
+--   bufnr: buffer to search in (default: current buffer)
+-- Returns: line number of previous cell header, or nil if none exists
+function M.get_previous_cell_header_line(opts)
+  opts = opts or {}
+  local include_subcells = opts.include_subcells ~= false
+  local one_based = opts.one_based ~= false
+  local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
+
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return nil
+  end
+
+  local cur = vim.api.nvim_win_get_cursor(0)[1] - 1  -- 0-based cursor row
+  local state = M.get_marker_state(bufnr)
+
+  if #state.order == 0 then
+    return nil
+  end
+
+  -- Find the last marker before the cursor
+  local prev_marker_row = nil
+  for _, marker_row in ipairs(state.order) do
+    if marker_row < cur then
+      local marker = state.markers[marker_row]
+      -- If we only want parent cells, skip subcells
+      if include_subcells or (marker and marker.type == "parent") then
+        prev_marker_row = marker_row
+      end
+    else
+      break
+    end
+  end
+
+  if not prev_marker_row then
+    return nil
+  end
+
+  return one_based and (prev_marker_row + 1) or prev_marker_row
+end
+
+-- Get the line number of the next cell header relative to the cursor.
+-- Options:
+--   include_subcells: if false, only consider parent cells (default: true)
+--   one_based: if true, return 1-based line numbers (default: true for UI compatibility)
+--   bufnr: buffer to search in (default: current buffer)
+-- Returns: line number of next cell header, or nil if none exists
+function M.get_next_cell_header_line(opts)
+  opts = opts or {}
+  local include_subcells = opts.include_subcells ~= false
+  local one_based = opts.one_based ~= false
+  local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
+
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return nil
+  end
+
+  local cur = vim.api.nvim_win_get_cursor(0)[1] - 1  -- 0-based cursor row
+  local state = M.get_marker_state(bufnr)
+
+  if #state.order == 0 then
+    return nil
+  end
+
+  -- Find the first marker after the cursor
+  for _, marker_row in ipairs(state.order) do
+    if marker_row > cur then
+      local marker = state.markers[marker_row]
+      -- If we only want parent cells, skip subcells
+      if include_subcells or (marker and marker.type == "parent") then
+        return one_based and (marker_row + 1) or marker_row
+      end
+    end
+  end
+
+  return nil
+end
+
 local function marker_label(marker)
   if not marker then
     return ""
