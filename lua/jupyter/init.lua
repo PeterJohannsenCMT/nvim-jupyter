@@ -268,6 +268,23 @@ end, {
   desc = "Send all cell/subcell titles to the quickfix list",
 })
 
+vim.api.nvim_create_user_command("JupyterRunCells", function(opts)
+  local input = opts.args
+  if input and input ~= "" then
+    local indices = utils.parse_cell_indices(input)
+    if #indices > 0 then
+      kernel.run_cells_by_indices(indices)
+    else
+      vim.notify("Jupyter: no valid cell indices provided", vim.log.levels.WARN)
+    end
+  else
+    vim.notify("Jupyter: usage :JupyterRunCells <indices> (e.g., '0,1,2' or '1-5')", vim.log.levels.WARN)
+  end
+end, {
+  nargs = 1,
+  desc = "Run specified cells by index (supports ranges like '1-5' or lists like '0,1,2')",
+})
+
 -- Default buffer-local keymaps for Python; safe and non-invasive
 vim.api.nvim_create_autocmd("FileType", {
 	pattern = { "python" },
