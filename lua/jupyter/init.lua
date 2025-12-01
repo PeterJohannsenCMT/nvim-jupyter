@@ -68,6 +68,16 @@ function M.get_current_cell_title(opts)
   return utils.get_current_cell_title(opts)
 end
 
+-- Get the line number of the previous cell header
+function M.get_previous_cell_header_line(opts)
+  return utils.get_previous_cell_header_line(opts)
+end
+
+-- Get the line number of the next cell header
+function M.get_next_cell_header_line(opts)
+  return utils.get_next_cell_header_line(opts)
+end
+
 -- Optional setup hook (allows overriding config elsewhere)
 function M.setup(opts)
   if not opts then return end
