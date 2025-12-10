@@ -23,19 +23,17 @@ local CELL_HL_DEFAULTS = {
   { name = "CellLineBackground", link = "StatusLine" },
   { name = "CellLineBG" },
   { name = "CellLineFG",         link = "Normal" },
-}
-
-local SUBCELL_HL_DEFAULTS = {
+  { name = "JupyterOutput",         link = "StatusLineNC" },
   { name = "CellLineSubBackground", link = "StatusLineNC" },
-  { name = "CellLineSubBG",         link = "CellLineBG" },
+  { name = "CellLineSubBG" },
 }
 
 local function define_cell_highlights()
   for _, def in ipairs(CELL_HL_DEFAULTS) do
     if def.name == "CellLineBG" then
       -- Special case: set fg to bg of Folded (cell background)
-      local folded_hl = vim.api.nvim_get_hl(0, { name = "Folded", link = false })
-      local bg_color = folded_hl and folded_hl.bg
+      local clb_hl = vim.api.nvim_get_hl(0, { name = "StatusLine", link = false })
+      local bg_color = clb_hl and clb_hl.bg
       if bg_color then
         api.nvim_set_hl(0, def.name, { fg = bg_color, default = true })
       else
@@ -44,9 +42,14 @@ local function define_cell_highlights()
     elseif def.name and def.link then
       api.nvim_set_hl(0, def.name, { link = def.link, default = true })
     end
-  end
-  for _, def in ipairs(SUBCELL_HL_DEFAULTS) do
-    if def.name and def.link then
+    if def.name == "CellLineSubBG" then
+      -- Special case: set fg to bg of Folded (cell background)
+      local clb_hl = vim.api.nvim_get_hl(0, { name = "StatusLineNC", link = false })
+      local bg_color = clb_hl and clb_hl.bg
+      if bg_color then
+        api.nvim_set_hl(0, def.name, { fg = bg_color, default = true })
+      end
+    elseif def.name and def.link then
       api.nvim_set_hl(0, def.name, { link = def.link, default = true })
     end
   end
