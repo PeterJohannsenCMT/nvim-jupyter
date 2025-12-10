@@ -9,7 +9,7 @@ local M      = {}
 
 vim.g.jupyter_outbuf_hl = "JupyterOutput"
 
-local DEFAULT_OUTBUF_HL = { bg = "#1e1e2e", ctermbg = 235 }
+local DEFAULT_OUTBUF_HL = { link = "Folded", default = true }
 
 local function highlight_is_defined(name)
   local ok, hl = pcall(vim.api.nvim_get_hl, 0, { name = name, link = false })
