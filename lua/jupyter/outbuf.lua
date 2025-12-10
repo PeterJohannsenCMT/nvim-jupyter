@@ -296,8 +296,7 @@ local CELL_MARKER_NS = api.nvim_create_namespace('jupyter_cell_marker')
 
 -- Define highlight for cell markers
 vim.api.nvim_set_hl(0, "JupyterCellMarker", {
-  fg = "#89b4fa",  -- Bright blue (catppuccin blue)
-  bold = true,
+  link = "Comment",
   default = true   -- Allow users to override
 })
 
