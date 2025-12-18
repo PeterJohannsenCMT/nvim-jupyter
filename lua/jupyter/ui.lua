@@ -204,8 +204,20 @@ function M.show_inline(bufnr, row, text, opts)
   end
 
   if is_err then
-    -- vim.notify ignores {hl=...} in many UIs; ensure red by level
-    vim.notify(cleaned, vim.log.levels.ERROR)
+    -- vim.notify ignores {hl=...} in many UIs; ensure red by level.
+    -- If the cleaned inline text is empty (e.g. only control codes), fall back to
+    -- the raw text so the hit-enter prompt is informative.
+    local notif = cleaned
+    if notif == nil or notif == "" then
+      notif = raw_stripped
+    end
+    -- Trim both ends to avoid a leading blank line triggering an empty prompt
+    notif = (notif or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if notif == "" then
+      notif = "Jupyter error (see outbuf)"
+    end
+    -- Use vim.notify so custom UIs still work; ERROR level keeps it in :messages.
+    -- pcall(vim.notify, notif, vim.log.levels.ERROR, { title = "nvim-jupyter" })
   end
 
   inline_mark[bufnr] = inline_mark[bufnr] or {}
