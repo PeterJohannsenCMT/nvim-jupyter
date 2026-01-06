@@ -1,12 +1,11 @@
 # nvim-jupyter
 
-A modern Neovim plugin that enables seamless interaction with Jupyter kernels directly from your editor. Execute Python code cells, view outputs inline, and maintain a live connection to your Jupyter kernel—all without leaving Neovim.
+A modern Neovim plugin that enables seamless interaction with Jupyter kernels directly from your editor. Execute Python code cells and maintain a live connection to your Jupyter kernel—all without leaving Neovim.
 
 ## ✨ Features
 
 - **Live Jupyter Integration**: Connect to and control Jupyter kernels from within Neovim
 - **Cell-based Execution**: Support for `#%%` cell markers (Jupyter/VSCode style)
-- **Inline Output Display**: View execution results directly in your buffer with virtual text
 - **Rich Output Support**: Handle text, markdown, images (PNG/SVG), and ANSI-colored output
 - **Visual Feedback**: Smart signs and indicators show execution status (running/success/error)
 - **Queue Management**: Execute multiple cells with proper queuing and interruption support
@@ -106,7 +105,6 @@ require("jupyter").setup()
    - Or use `:JupyterRunCell`
 
 4. **View results**:
-   - Inline virtual text shows outputs
    - Signs in the gutter indicate execution status
    - Optional split pane for detailed output
 
@@ -153,7 +151,7 @@ The plugin automatically sets up these keybindings for Python files:
 
 ### Output Management
 - `:JupyterToggleOut` - Toggle the output split pane
-- `:JupyterClearAll` - Clear all inline virtual text output
+- `:JupyterClearAll` - Clear all virtual text output
 
 ### Docs
 - `:JupyterDoc` - Show documentation for the object under cursor (uses Jupyter inspect; tries control channel so it works even while a cell is running)
@@ -205,15 +203,6 @@ require("jupyter").setup({
     drop_queue = true,        -- drop pending executions on interrupt
     timeout_ms = 3000,        -- timeout before forcing restart
     restart_on_timeout = true,-- restart kernel if interrupt times out
-  },
-  
-  -- Inline output display
-  inline = {
-    strip_ansi = true,        -- remove ANSI color codes from inline text
-    maxlen = 120,             -- max length of inline output
-    prefix = " ⇒ ",           -- prefix for inline output
-    hl_normal = "JupyterInline", -- highlight group for normal output
-    hl_error = "ErrorMsg",    -- highlight group for errors
   },
 })
 ```

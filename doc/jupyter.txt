@@ -23,14 +23,12 @@ CONTENTS                                                       *jupyter-contents
 1. INTRODUCTION                                           *jupyter-introduction*
 
 nvim-jupyter is a modern Neovim plugin that enables seamless interaction with
-Jupyter kernels directly from your editor. Execute Python code cells, view
-outputs inline, and maintain a live connection to your Jupyter kernel—all
-without leaving Neovim.
+Jupyter kernels directly from your editor. Execute Python code cells and
+maintain a live connection to your Jupyter kernel—all without leaving Neovim.
 
 Key features:
 - Live Jupyter kernel integration
 - Cell-based execution with `#%%` markers
-- Inline output display with virtual text
 - Rich output support (text, markdown, images, ANSI colors)
 - Visual feedback with signs and indicators
 - Queue management for multiple executions
@@ -105,7 +103,6 @@ Manual installation: >
    - Or use |:JupyterRunCell|
 
 4. View results:
-   - Inline virtual text shows outputs
    - Signs in the gutter indicate execution status
    - Optional split pane for detailed output
 
@@ -191,9 +188,9 @@ Manual installation: >
 :JupyterToggleOut       Toggle the output split pane. If closed, opens it.
                         If open, closes it.
 
-                                                        *:JupyterClearAll*
-:JupyterClearAll        Clear all inline virtual text output from the
-                        current buffer.
+                                                     *:JupyterClearAll*
+:JupyterClearAll        Clear all virtual text output from the current
+                        buffer.
 
 Note: Pause/Resume rely on POSIX signals and are not supported on Windows.
 
@@ -260,15 +257,6 @@ passing options to the setup function: >
       -- Run behavior
       run = {
         advance_to_next_cell = true, -- smart run jumps to next cell when true
-      },
-      
-      -- Inline output display
-      inline = {
-        strip_ansi = true,        -- remove ANSI color codes from inline text
-        maxlen = 120,             -- max length of inline output
-        prefix = " ⇒ ",           -- prefix for inline output
-        hl_normal = "JupyterInline", -- highlight group for normal output
-        hl_error = "ErrorMsg",    -- highlight group for errors
       },
     })
 <
@@ -360,13 +348,6 @@ Example file structure: >
 9. OUTPUT DISPLAY                                             *jupyter-output*
 
 The plugin provides multiple ways to view execution output:
-
-Inline Virtual Text~
-Results appear as virtual text next to your code:
-- Success: Shows ✓ sign and truncated result preview
-- Error: Shows ✗ sign and error message
-- Running: Shows ▶ sign and "running..." indicator
-- Long outputs are truncated with "..." to fit on screen
 
 Signs in Gutter~
 Visual indicators in the sign column show execution status:
@@ -460,12 +441,6 @@ Solution:
 - Activate your desired environment before starting Neovim
 - Set `python_cmd` in configuration to specific Python path
 - Check environment: `:lua print(require('jupyter.config').python_cmd)`
-
-"Output contains ANSI escape codes"~
-Cause: Terminal colors not being interpreted
-Solution:
-- Install baleia.nvim for ANSI color support
-- Or set `inline.strip_ansi = true` in configuration
 
 Debugging Commands:
 Check kernel status: >
