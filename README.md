@@ -6,11 +6,11 @@ A modern Neovim plugin that enables seamless interaction with Jupyter kernels di
 
 - **Live Jupyter Integration**: Connect to and control Jupyter kernels from within Neovim
 - **Cell-based Execution**: Support for `#%%` cell markers (Jupyter/VSCode style)
-- **Rich Output Support**: Handle text, markdown, images (PNG/SVG), and ANSI-colored output
+- **Rich Output Support**: Handle text, markdown, and ANSI-colored output
 - **Visual Feedback**: Smart signs and indicators show execution status (running/success/error)
 - **Queue Management**: Execute multiple cells with proper queuing and interruption support
-- **Auto-detection**: Automatically finds Python environments (conda/virtualenv)
-- **Split Pane Output**: Optional dedicated output buffer for detailed results
+- **Python**: Uses your env's python instance.
+- **Split Pane Output**: (Optional) dedicated output buffer for detailed results
 - **Non-blocking**: Asynchronous execution keeps Neovim responsive
 - **IPython niceties**: Inline `?` / `??` doc lookups open in a pager split, and `%` line magics are expanded automatically
 
@@ -51,27 +51,6 @@ conda create -f env.yaml
 }
 ```
 
-### Using [packer.nvim](https://github.com/wbthomason/packer.nvim)
-
-```lua
-use {
-  "nvim-jupyter",
-  ft = "python",
-  config = function()
-    require("jupyter").setup()
-  end
-}
-```
-
-### Manual Installation
-
-Add the plugin directory to your Neovim runtime path:
-
-```lua
-vim.opt.rtp:prepend("/path/to/nvim-jupyter")
-require("jupyter").setup()
-```
-
 ## 🚀 Quick Start
 
 1. **Create a Python file** with cell markers:
@@ -90,7 +69,6 @@ require("jupyter").setup()
    y = np.sin(x)
    plt.plot(x, y)
    plt.draw()
-   
    #%% Cell 3
    print("Hello from Jupyter!")
    ```
@@ -101,12 +79,12 @@ require("jupyter").setup()
    ```
 
 3. **Execute cells**:
-   - Place cursor in a cell and press `<Enter>` (normal mode)
+   - Place cursor in a cell and press `<leader>jx` (normal mode)
    - Or use `:JupyterRunCell`
 
 4. **View results**:
+   - `<leader>jo` toggles the output-buffer, which prints outputs (and full error messages, with ANSI-colours.
    - Signs in the gutter indicate execution status
-   - Optional split pane for detailed output
 
 ## ⌨️ Default Keybindings
 
@@ -114,7 +92,7 @@ The plugin automatically sets up these keybindings for Python files:
 
 | Key | Mode | Command | Description |
 |-----|------|---------|-------------|
-| `<CR>` | Normal | `:JupyterRunCell` | Execute current cell |
+| `<leader>jx` | Normal | `:JupyterRunCell` | Execute current cell |
 | `<leader>jC` | Normal | `:JupyterRunCellStay` | Execute cell without moving cursor |
 | `<leader>jl` | Normal | `:JupyterRunLine` | Execute current line |
 | `<leader>js` | Visual | `:JupyterRunSelection` | Execute selected text |
@@ -328,6 +306,11 @@ This plugin is provided as-is for personal use.
 - [vim-slime](https://github.com/jpalardy/vim-slime) - Send code to terminal/tmux
 - [baleia.nvim](https://github.com/m00qek/baleia.nvim) - ANSI color support (recommended companion)
 - [molten.nvim](https://github.com/benlubas/molten-nvim) - Interactive REPL over Neovim
+
+
+# Reporting Bugs/Making Requests
+
+- [ ] Please let me know if you find any issues, or if you have any requests. I'm new to the plugin world, and would be thrilled to hear your feedback.
 
 # Known Issues
 

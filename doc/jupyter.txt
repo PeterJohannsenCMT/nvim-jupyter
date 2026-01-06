@@ -274,17 +274,6 @@ This ensures that the plugin uses the same Python environment as your current
 shell session.
 
                                                          *jupyter-keymaps*
-Customizing Keymaps~
-
-To disable the default keymaps, you can clear them after the plugin loads: >
-    vim.api.nvim_create_autocmd("FileType", {
-      pattern = "python",
-      callback = function(ev)
-        -- Clear the default <CR> mapping if you want to use it for something else
-        vim.keymap.del("n", "<CR>", { buffer = ev.buf })
-      end,
-    })
-<
 
 To add custom keymaps: >
     vim.api.nvim_create_autocmd("FileType", {
