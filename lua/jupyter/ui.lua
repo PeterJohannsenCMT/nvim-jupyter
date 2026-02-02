@@ -241,9 +241,65 @@ end
 -- Store sign info: [bufnr][original_row] = { kind, mark_id }
 local sign_marks = {}
 
+-- Animation for Running signs
+local anim_timer = nil
+local anim_idx = 1
+-- local SPINNER_FRAMES = { "⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷" }
+-- local SPINNER_FRAMES = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+local SPINNER_FRAMES = {"󱑖", "󱑋", "󱑌", "󱑍", "󱑎", "󱑏", "󱑐", "󱑑", "󱑒", "󱑓", "󱑔", "󱑕"}
+
+local function stop_anim()
+  if anim_timer then
+    if not anim_timer:is_closing() then anim_timer:stop(); anim_timer:close() end
+    anim_timer = nil
+  end
+end
+
+local function has_any_running_sign()
+  for _, buf_signs in pairs(sign_marks) do
+    for _, info in pairs(buf_signs) do
+      if info.kind == "run" then return true end
+    end
+  end
+  return false
+end
+
+local function step_anim()
+  if not has_any_running_sign() then
+    stop_anim()
+    return
+  end
+  anim_idx = (anim_idx % #SPINNER_FRAMES) + 1
+  local symbol = SPINNER_FRAMES[anim_idx]
+
+  for bufnr, buf_signs in pairs(sign_marks) do
+    if api.nvim_buf_is_valid(bufnr) then
+      for _, info in pairs(buf_signs) do
+        if info.kind == "run" and info.mark_id then
+           local mark = api.nvim_buf_get_extmark_by_id(bufnr, ns_exec, info.mark_id, { details = false })
+           if mark and #mark > 0 then
+             api.nvim_buf_set_extmark(bufnr, ns_exec, mark[1], 0, {
+               id = info.mark_id,
+               sign_text = symbol,
+               sign_hl_group = "JupyterRunning",
+               priority = 10,
+             })
+           end
+        end
+      end
+    end
+  end
+end
+
+local function start_anim()
+  if anim_timer then return end
+  anim_timer = vim.loop.new_timer()
+  anim_timer:start(0, 100, vim.schedule_wrap(step_anim))
+end
+
 local function get_sign_appearance(kind)
   if kind == "run" then
-		return "󰦖", "JupyterRunning" -- 
+		return SPINNER_FRAMES[1], "JupyterRunning"
   elseif kind == "ok" then
     return "✓", "DiagnosticOk"
   else  -- "err"
@@ -296,6 +352,7 @@ function M.place_sign(kind, bufnr, row)
 
   if ok then
     sign_marks[bufnr][row] = { kind = kind, mark_id = mark_id }
+    if kind == "run" then start_anim() end
   end
 end
 
