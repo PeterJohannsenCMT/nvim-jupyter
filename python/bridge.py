@@ -95,7 +95,12 @@ def _start_kernel(kernel, cwd):
         except Exception: pass
     km = KernelManager(kernel_name=(kernel or "python3"))
     extra_env = os.environ.copy()
-    extra_env["PATH"] = "/Library/TeX/texbin:" + extra_env.get("PATH", "")
+    path = extra_env.get("PATH", "")
+    if "/usr/bin" not in path.split(":"):
+        path = path + (":" if path else "") + "/usr/bin"
+    if "/bin" not in path.split(":"):
+        path = path + (":" if path else "") + "/bin"
+    extra_env["PATH"] = "/Library/TeX/texbin:" + path
     km.start_kernel(env = extra_env)
     kc = km.client()
     kc.start_channels()

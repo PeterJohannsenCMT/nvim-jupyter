@@ -23,7 +23,7 @@ local CELL_HL_DEFAULTS = {
   { name = "CellLineBackground", link = "StatusLine" },
   { name = "CellLineBG" },
   { name = "CellLineFG",         link = "Normal" },
-  { name = "JupyterOutput",         link = "StatusLineNC" },
+  { name = "JupyterOutput",         link = "NormalNC" },
   { name = "CellLineSubBackground", link = "StatusLineNC" },
   { name = "CellLineSubBG" },
 }
