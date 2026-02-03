@@ -244,9 +244,13 @@ local sign_marks = {}
 -- Animation for Running signs
 local anim_timer = nil
 local anim_idx = 1
+
 -- local SPINNER_FRAMES = { "⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷" }
 -- local SPINNER_FRAMES = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-local SPINNER_FRAMES = {"󱑖", "󱑋", "󱑌", "󱑍", "󱑎", "󱑏", "󱑐", "󱑑", "󱑒", "󱑓", "󱑔", "󱑕"}
+-- local SPINNER_FRAMES = { '.', 'o', 'O', 'o' }
+local SPINNER_FRAMES= { "|", "/", "-", "\\" }
+-- local SPINNER_FRAMES = {"󱑖", "󱑋", "󱑌", "󱑍", "󱑎", "󱑏", "󱑐", "󱑑", "󱑒", "󱑓", "󱑔", "󱑕"}
+-- local SPINNER_FRAMES = {"▉","▊","▋","▌","▍","▎","▏","▎","▍","▌","▋","▊","▉"}
 
 local function stop_anim()
   if anim_timer then
@@ -303,7 +307,7 @@ local function get_sign_appearance(kind)
   elseif kind == "ok" then
     return "✓", "DiagnosticOk"
   else  -- "err"
-    return "✗", "DiagnosticError"
+    return "×", "DiagnosticError"
   end
 end
 
@@ -492,6 +496,15 @@ function M.clear_signs_range(bufnr, srow, erow)
     end
   end
   remove_diagnostics_in_range(bufnr, srow, erow)
+end
+
+-- Return the sign kind for a given original row, if any.
+-- kind is one of: "run", "ok", "err"
+function M.get_sign_kind(bufnr, row)
+  if not (bufnr and api.nvim_buf_is_valid(bufnr)) then return nil end
+  local buf_signs = sign_marks[bufnr]
+  local info = buf_signs and buf_signs[row]
+  return info and info.kind or nil
 end
 
 local ns_bg = vim.api.nvim_create_namespace("cell_line_background")

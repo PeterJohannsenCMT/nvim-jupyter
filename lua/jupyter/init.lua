@@ -68,6 +68,24 @@ function M.get_current_cell_title(opts)
   return utils.get_current_cell_title(opts)
 end
 
+-- Expose the current cell execution status for statuslines, etc.
+-- Returns one of: "run", "ok", "err", or "idle" (if no sign for the cell)
+function M.get_current_cell_status(opts)
+  opts = opts or {}
+  local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(bufnr) then return nil end
+  local include_subcells = opts.include_subcells ~= false
+  local _, e = utils.find_code_block({ include_subcells = include_subcells })
+  if not e then
+    return nil
+  end
+  local kind = ui.get_sign_kind(bufnr, e)
+  if not kind then
+    return "idle"
+  end
+  return kind
+end
+
 -- Get the line number of the previous cell header
 function M.get_previous_cell_header_line(opts)
   return utils.get_previous_cell_header_line(opts)

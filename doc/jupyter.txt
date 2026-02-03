@@ -458,6 +458,12 @@ require('jupyter').eval_current_block()                 Execute current cell
 
 require('jupyter').eval_all_above()                     Execute all above cursor
 
+require('jupyter').get_current_cell_title()            Get current cell title
+
+require('jupyter').get_current_cell_status()           Get current cell status
+                                                        Returns "run", "ok",
+                                                        "err", or "idle"
+
                                                     *require('jupyter.kernel')*
 require('jupyter.kernel').start()                       Start kernel
 
