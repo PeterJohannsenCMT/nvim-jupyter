@@ -186,6 +186,10 @@ local function open_window()
 
 	vim.b[buf].is_outbuf = true
   out_winid = api.nvim_get_current_win()
+
+	vim.wo[out_winid].number = false
+	vim.wo[out_winid].relativenumber = false
+
   api.nvim_win_set_buf(out_winid, buf)
 
 	local cfg = get_out_cfg()
@@ -208,7 +212,7 @@ local function open_window()
   if cfg.focus_on_open ~= true and api.nvim_win_is_valid(prev) then
     api.nvim_set_current_win(prev)
   end
-  
+
   -- Start the highlight maintenance timer when window opens
   -- start_highlight_timer()
 end
