@@ -695,6 +695,43 @@ function M.cancel_queue()
   inflight = false
 end
 
+local function get_head_cell()
+  local head = queue[1]
+  if not head or not head.seq then return nil end
+  return pending[head.seq]
+end
+
+function M.goto_running_cell()
+  local cell = get_head_cell()
+  if not cell then
+    vim.notify("Jupyter: no running cell", vim.log.levels.WARN)
+    return
+  end
+
+  local bufnr = cell.bufnr
+  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+    vim.notify("Jupyter: running cell buffer is not valid", vim.log.levels.WARN)
+    return
+  end
+
+  local win = vim.fn.bufwinid(bufnr)
+  if win ~= -1 then
+    vim.api.nvim_set_current_win(win)
+  else
+    vim.cmd("buffer " .. bufnr)
+  end
+
+  local row = cell.start_row or cell.row or 0
+  local line_count = vim.api.nvim_buf_line_count(bufnr)
+  if line_count > 0 then
+    if row < 0 then row = 0 end
+    if row >= line_count then row = line_count - 1 end
+  else
+    row = 0
+  end
+  vim.api.nvim_win_set_cursor(0, { row + 1, 0 })
+end
+
 -- Execute code from a given source row (0-based)
 function M.execute(code, row, marker_text)
   if not ensure_bridge() then return end

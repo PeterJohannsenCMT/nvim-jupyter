@@ -241,6 +241,9 @@ vim.api.nvim_create_user_command("JupyterRunLine",      function() kernel.eval_l
 vim.api.nvim_create_user_command("JupyterRunSelection", function() kernel.eval_selection()   end, {})
 vim.api.nvim_create_user_command("JupyterRunCell",      function() kernel.eval_current_block() end, {})
 vim.api.nvim_create_user_command("JupyterRunAbove",      function() kernel.eval_all_above() end, {})
+vim.api.nvim_create_user_command("JupyterGotoRunningCell", function() kernel.goto_running_cell() end, {
+  desc = "Jupyter: jump to the currently running cell",
+})
 vim.api.nvim_create_user_command("JupyterDoc", function()
   kernel.doc_at_cursor()
 end, { desc = "Jupyter: show documentation for object under cursor" })
