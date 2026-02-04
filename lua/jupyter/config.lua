@@ -18,7 +18,7 @@ local M = {
 		height = 15,
 		width = 30,
 		focus_on_open = false, -- stay in code window by default
-		filetype = "txt",
+		filetype = "markdown",
 	},
 	interrupt = {
 		drop_queue = true,
