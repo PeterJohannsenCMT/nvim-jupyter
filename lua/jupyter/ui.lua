@@ -507,6 +507,33 @@ function M.get_sign_kind(bufnr, row)
   return info and info.kind or nil
 end
 
+-- Return the most severe sign kind in [srow, erow], if any.
+-- Precedence: "err" > "run" > "ok"
+function M.get_sign_kind_in_range(bufnr, srow, erow)
+  if not (bufnr and api.nvim_buf_is_valid(bufnr)) then return nil end
+  local buf_signs = sign_marks[bufnr]
+  if not buf_signs then return nil end
+  if srow == nil or erow == nil then return nil end
+  if erow < srow then srow, erow = erow, srow end
+
+  local has_run = false
+  local has_ok = false
+  for row, info in pairs(buf_signs) do
+    if row >= srow and row <= erow and info and info.kind then
+      if info.kind == "err" then
+        return "err"
+      elseif info.kind == "run" then
+        has_run = true
+      elseif info.kind == "ok" then
+        has_ok = true
+      end
+    end
+  end
+  if has_run then return "run" end
+  if has_ok then return "ok" end
+  return nil
+end
+
 local ns_bg = vim.api.nvim_create_namespace("cell_line_background")
 local ns_sign = vim.api.nvim_create_namespace("cell_signs")
 local ns_linehl = vim.api.nvim_create_namespace("cell_line_highlight")

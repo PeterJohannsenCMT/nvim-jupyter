@@ -75,11 +75,11 @@ function M.get_current_cell_status(opts)
   local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(bufnr) then return nil end
   local include_subcells = opts.include_subcells ~= false
-  local _, e = utils.find_code_block({ include_subcells = include_subcells })
-  if not e then
+  local s, e = utils.find_code_block({ include_subcells = include_subcells })
+  if not s or not e then
     return nil
   end
-  local kind = ui.get_sign_kind(bufnr, e)
+  local kind = ui.get_sign_kind_in_range(bufnr, s, e)
   if not kind then
     return "idle"
   end

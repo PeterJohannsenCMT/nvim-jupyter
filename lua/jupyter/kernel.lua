@@ -468,6 +468,8 @@ local function ensure_bridge()
 				end
 				-- concise inline error (keep it visible after completion)
 				local inline = (msg.ename or "Error") .. (msg.evalue and (": " .. msg.evalue) or "")
+        -- Clear the running sign at the cell anchor row so spinners stop.
+        ui.clear_signs_range(bufnr, row, row)
 				ui.place_sign("err", bufnr, diag_row)
 				ui.show_inline(bufnr, diag_row, inline, { error = true })
 				local ns = vim.api.nvim_create_namespace("jupyter_exec")

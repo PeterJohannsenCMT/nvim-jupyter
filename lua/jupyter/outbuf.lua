@@ -230,6 +230,9 @@ local function open_pager_window(cfg)
   pager_winid = api.nvim_get_current_win()
   api.nvim_win_set_buf(pager_winid, buf)
 
+  vim.wo[pager_winid].number = false
+  vim.wo[pager_winid].relativenumber = false
+
   if cfg.focus_on_open ~= true and api.nvim_win_is_valid(prev) then
     api.nvim_set_current_win(prev)
   end
