@@ -36,6 +36,10 @@ local out_bufnr, out_winid = nil, nil
 local pager_bufnr, pager_winid = nil, nil
 local close_pager_window
 -- local highlight_timer = nil
+local find_listed_non_outbuf
+local refresh_outbuf_window
+local maybe_escape_fullscreen_outbuf
+local escape_augroup = api.nvim_create_augroup("JupyterOutbufEscape", { clear = true })
 
 -- per-seq cell state
 -- state[seq] = { opened = bool, row = int|nil, line = string }
@@ -121,6 +125,7 @@ local function ensure_buf()
   api.nvim_create_autocmd({ "BufEnter", "WinEnter", "BufWinEnter", "BufLeave", "WinLeave" }, {
     buffer = out_bufnr,
     callback = function()
+      refresh_outbuf_window()
       -- Find the window that contains this outbuf, regardless of current window
       local outbuf_win = nil
       for _, win in ipairs(api.nvim_list_wins()) do
@@ -144,6 +149,55 @@ local function ensure_buf()
   })
 
   return out_bufnr
+end
+
+find_listed_non_outbuf = function()
+  if not out_bufnr or not api.nvim_buf_is_valid(out_bufnr) then return nil end
+  local alt = vim.fn.bufnr("#")
+  if alt and alt > 0 and alt ~= out_bufnr and vim.fn.buflisted(alt) == 1 then
+    return alt
+  end
+  for _, b in ipairs(api.nvim_list_bufs()) do
+    if b ~= out_bufnr and api.nvim_buf_is_valid(b) and vim.fn.buflisted(b) == 1 then
+      return b
+    end
+  end
+  return nil
+end
+
+refresh_outbuf_window = function()
+  if not out_bufnr or not api.nvim_buf_is_valid(out_bufnr) then
+    out_winid = nil
+    return nil
+  end
+  for _, win in ipairs(api.nvim_list_wins()) do
+    if api.nvim_win_is_valid(win) and api.nvim_win_get_buf(win) == out_bufnr then
+      out_winid = win
+      return win
+    end
+  end
+  if out_winid and api.nvim_win_is_valid(out_winid) then
+    pcall(function() vim.wo[out_winid].winfixbuf = false end)
+  end
+  out_winid = nil
+  return nil
+end
+
+maybe_escape_fullscreen_outbuf = function()
+  if not out_bufnr or not api.nvim_buf_is_valid(out_bufnr) then return end
+  local wins = api.nvim_list_wins()
+  if #wins == 1 and api.nvim_win_is_valid(wins[1]) and api.nvim_win_get_buf(wins[1]) == out_bufnr then
+    local target = find_listed_non_outbuf()
+    if target then
+      out_winid = nil
+      pcall(function() vim.wo[wins[1]].winfixbuf = false end)
+      pcall(api.nvim_win_set_buf, wins[1], target)
+      pcall(function()
+        vim.wo[wins[1]].number = vim.o.number
+        vim.wo[wins[1]].relativenumber = vim.o.relativenumber
+      end)
+    end
+  end
 end
 
 local function ensure_pager_buf(cfg)
@@ -208,9 +262,19 @@ local function open_window()
 	end)
 
   api.nvim_buf_set_option(buf, "modifiable", true)
+  pcall(function() vim.wo[out_winid].winfixbuf = true end)
 
-  if cfg.focus_on_open ~= true and api.nvim_win_is_valid(prev) then
-    api.nvim_set_current_win(prev)
+  if cfg.focus_on_open ~= true then
+    if api.nvim_win_is_valid(prev) and api.nvim_win_get_buf(prev) ~= out_bufnr then
+      api.nvim_set_current_win(prev)
+    else
+      for _, win in ipairs(api.nvim_list_wins()) do
+        if api.nvim_win_is_valid(win) and api.nvim_win_get_buf(win) ~= out_bufnr then
+          api.nvim_set_current_win(win)
+          break
+        end
+      end
+    end
   end
 
   -- Start the highlight maintenance timer when window opens
@@ -314,6 +378,7 @@ local SCROLL_THROTTLE_MS = 100  -- Max 10 scrolls per second
 local function scroll_to_bottom(force)
   local cfg = get_out_cfg()
   if not cfg.auto_scroll then return end
+  if not M.is_visible() then return end
   if not (out_winid and api.nvim_win_is_valid(out_winid) and out_bufnr and api.nvim_buf_is_valid(out_bufnr)) then
     return
   end
@@ -346,7 +411,23 @@ local function scroll_to_bottom(force)
   end)
 end
 
-function M.is_visible() return out_winid and api.nvim_win_is_valid(out_winid) end
+function M.is_visible()
+  if out_winid and api.nvim_win_is_valid(out_winid) and out_bufnr
+    and api.nvim_buf_is_valid(out_bufnr)
+    and api.nvim_win_get_buf(out_winid) == out_bufnr then
+    return true
+  end
+  refresh_outbuf_window()
+  return out_winid ~= nil
+end
+
+api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
+  group = escape_augroup,
+  callback = function(ev)
+    if ev.buf == out_bufnr then return end
+    maybe_escape_fullscreen_outbuf()
+  end,
+})
 function M.open() if not M.is_visible() then open_window() end end
 function M.toggle()
   if M.is_visible() then 
