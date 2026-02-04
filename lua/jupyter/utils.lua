@@ -282,8 +282,11 @@ function M.find_code_block(opts)
   end
 end
 
--- Return the 0-based row of the **first code line of the next cell** after `row0` (0-based),
--- or nil if there is no next cell. This is "line after the next marker".
+-- Return the 0-based row to place the cursor for the next cell after `row0` (0-based),
+-- or nil if there is no next cell.
+-- Default behavior:
+--   - If the next cell is folded, return the marker row (cell header).
+--   - Otherwise return the first code line (line after the marker).
 function M.first_line_of_next_cell_from(row0)
   local bufnr = vim.api.nvim_get_current_buf()
   local line_count = vim.api.nvim_buf_line_count(bufnr)
@@ -293,6 +296,10 @@ function M.first_line_of_next_cell_from(row0)
   local state = M.get_marker_state(bufnr)
   for _, marker_row in ipairs(state.order) do
     if marker_row > row0 then
+      local fold_start = vim.fn.foldclosed(marker_row + 1) -- 1-based
+      if fold_start ~= -1 then
+        return marker_row
+      end
       local start = math.min(marker_row + 1, math.max(line_count - 1, 0))
       return start
     end
