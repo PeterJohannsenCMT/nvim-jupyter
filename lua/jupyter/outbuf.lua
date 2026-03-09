@@ -60,12 +60,26 @@ end
 local ANSI_CSI = "\27%[[0-?]*[ -/]*[@-~]"  -- CSI sequences
 local ANSI_OSC = "\27%].-\7"                -- OSC sequences
 
+local function strip_noise_controls(text, opts)
+  if not text then return "" end
+  local keep_newlines = opts and opts.keep_newlines
+  local cleaned = tostring(text)
+
+  -- Preserve tabs and, optionally, newlines. Drop the rest of the C0 control set.
+  cleaned = cleaned:gsub("[%z\1-\8\11\12\14-\31\127]", "")
+  if not keep_newlines then
+    cleaned = cleaned:gsub("\n", "")
+  end
+
+  return cleaned
+end
+
 local function strip_ansi(text)
   if not text then return "" end
   local cleaned = tostring(text)
   cleaned = cleaned:gsub(ANSI_CSI, "")  -- Remove CSI sequences
   cleaned = cleaned:gsub(ANSI_OSC, "")  -- Remove OSC sequences
-  return cleaned
+  return strip_noise_controls(cleaned, { keep_newlines = true })
 end
 
 local function set_lines_colored(buf, s, e, lines, is_error)
@@ -526,12 +540,9 @@ end
 local ANSI_CSI = "\27%[[0-?]*[ -/]*[@-~]"
 local function is_effectively_empty(s)
   if not s or s == "" then return true end
-  s = tostring(s)
-  -- remove CR, ANSI, backspace, newlines, then trim
-  s = s:gsub("\r", "")
-       :gsub(ANSI_CSI, "")
-       :gsub("\b", "")
-       :gsub("\n", "")
+  -- remove CR, ANSI, backspace, and non-whitespace control bytes, then trim
+  local cleaned = tostring(s):gsub("\r", ""):gsub(ANSI_CSI, ""):gsub("\b", "")
+  s = strip_noise_controls(cleaned)
   return s:match("^%s*$") ~= nil
 end
 
@@ -646,7 +657,7 @@ function M.append_stream(seq, text, is_error)
   for k = 1, math.max(0, last_idx) do
     local seg = segs[k]
     local vis = seg:match("[^\r]*$") or seg
-    if not is_effectively_empty(vis) then
+    if seg == "" or not is_effectively_empty(vis) then
       table.insert(pending_buffer_updates, { seq = seq, type = "line", text = vis, is_error = is_error })
     end
   end
@@ -664,7 +675,7 @@ end
 
 function M.append(seq, text, is_error)
   local s = tostring(text or "")
-  if s == "" or s:match("^%s*$") then return end
+  if s == "" or is_effectively_empty(s) then return end
   ensure_started(seq)
   local lines = {}
   for line in (s .. "\n"):gmatch("([^\n]*)\n") do table.insert(lines, line) end
