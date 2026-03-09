@@ -22,6 +22,14 @@ local function should_ignore_diagnostic(line)
   return is_doc_lookup_line(line) or is_magic_line(line)
 end
 
+local function is_pyright_family_client(client)
+  if not client or type(client.name) ~= "string" then
+    return false
+  end
+
+  return client.name == "pyright" or client.name == "basedpyright"
+end
+
 local function filter_pyright_diagnostics(err, result, ctx, config, original)
   if not result or type(result) ~= "table" then
     return original(err, result, ctx, config)
@@ -31,7 +39,7 @@ local function filter_pyright_diagnostics(err, result, ctx, config, original)
     return original(err, result, ctx, config)
   end
   local client = ctx and ctx.client_id and vim.lsp.get_client_by_id(ctx.client_id)
-  if not client or client.name ~= "pyright" then
+  if not is_pyright_family_client(client) then
     return original(err, result, ctx, config)
   end
   local uri = result.uri

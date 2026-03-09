@@ -236,7 +236,7 @@ The plugin recognizes Jupyter-style cell markers:
 
 ## ❓ IPython Doc Lookups and Magics
 
-- End a symbol with `?` or `??` inside a cell (e.g. `np.linspace?`) to open IPython help in the configured pager split (see `pager` settings in the configuration). These lines are ignored by Pyright diagnostics so you can keep them in your code without warnings.
+- End a symbol with `?` or `??` inside a cell (e.g. `np.linspace?`) to open IPython help in the configured pager split (see `pager` settings in the configuration). These lines are ignored by Pyright and BasedPyright diagnostics so you can keep them in your code without warnings.
 - Lines starting with `%` are treated as IPython line magics and expanded to `get_ipython().run_line_magic(...)` before execution, so commands like `%time`, `%pip install ...`, or `%who` run as expected when sent from Neovim.
 
 ## 🏗️ Architecture

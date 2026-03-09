@@ -451,7 +451,7 @@ function M.clear()
   scroll_to_bottom()
 end
 
-local function append_lines(lines, is_error)
+local function append_lines(lines, is_error, opts)
   local buf  = ensure_buf()
   local last = api.nvim_buf_line_count(buf)
   local last_line = api.nvim_buf_get_lines(buf, last - 1, last, false)[1]
@@ -461,11 +461,19 @@ local function append_lines(lines, is_error)
     -- Buffer is "empty": replace that first blank line
     set_lines_colored(buf, 0, 1, lines, is_error)
   else
-    -- Real content exists: append after last line
-    set_lines_colored(buf, last, last, lines, is_error)
+    local replace_trailing_blank = opts and opts.replace_trailing_blank
+    if replace_trailing_blank and last_line == "" then
+      -- Replace the final blank line instead of inserting after it.
+      set_lines_colored(buf, last - 1, last, lines, is_error)
+    else
+      -- Real content exists: append after last line
+      set_lines_colored(buf, last, last, lines, is_error)
+    end
   end
   api.nvim_buf_set_option(buf, "modifiable", false)
-  scroll_to_bottom(is_error)  -- Force scroll on errors
+  if not (opts and opts.skip_scroll) then
+    scroll_to_bottom((opts and opts.force_scroll) or is_error)  -- Force scroll on errors
+  end
 end
 
 -- Lazy header: only print "#%%" when we actually have content to show
@@ -489,7 +497,7 @@ local function ensure_started(seq)
     marker_line = line_before
   end
 
-  append_lines({marker, ""})
+  append_lines({marker, ""}, false, { skip_scroll = true })
 
   -- Add extmark highlight to the marker line AFTER it's been added
   pcall(api.nvim_buf_set_extmark, buf, CELL_MARKER_NS, marker_line, 0, {
@@ -660,7 +668,10 @@ function M.append(seq, text, is_error)
   ensure_started(seq)
   local lines = {}
   for line in (s .. "\n"):gmatch("([^\n]*)\n") do table.insert(lines, line) end
-  if #lines > 0 then append_lines(lines, is_error) end
+  if #lines > 0 then
+    if lines[#lines] ~= "" then table.insert(lines, "") end
+    append_lines(lines, is_error, { replace_trailing_blank = true, force_scroll = true })
+  end
 end
 
 function M.append_markdown(seq, md)
