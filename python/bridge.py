@@ -21,6 +21,9 @@ _queue = deque()
 _outbox = []               # batched messages
 _shell_pending = {}        # msg_id -> seq
 _inspect_pending = {}      # msg_id -> {"expr": str}
+_aux_exec_pending = {}     # msg_id -> {"kind": str, "stream": [str], "error": str|None}
+
+DEBUGPY_SENTINEL = "__NVIM_JUPYTER_DEBUGPY__"
 
 def send(obj):
     _outbox.append(obj)
@@ -138,9 +141,58 @@ signal.signal(signal.SIGTERM, _sigterm)
 signal.signal(signal.SIGINT,  _sigterm)
 
 # ---------- IOPub / STDIN draining ----------
+def _handle_aux_iopub(msg_id, msg):
+    state = _aux_exec_pending.get(msg_id)
+    if state is None:
+        return
+
+    mtype = msg["header"]["msg_type"]
+    content = msg.get("content", {})
+
+    if mtype == "stream":
+        state.setdefault("stream", []).append(content.get("text", ""))
+        return
+
+    if mtype == "error":
+        tb_list = content.get("traceback", []) or []
+        tb_text = "\n".join(tb_list) if tb_list else "{}: {}".format(
+            content.get("ename", "Error"), content.get("evalue", "")
+        ).strip()
+        state["error"] = tb_text
+        return
+
+    if mtype == "status" and content.get("execution_state") == "idle":
+        _aux_exec_pending.pop(msg_id, None)
+        if state.get("kind") == "debugpy_start":
+            if state.get("error"):
+                send({"type": "debugpy_error", "message": state["error"]})
+                return
+
+            payload = None
+            for chunk in state.get("stream", []):
+                for line in chunk.splitlines():
+                    if line.startswith(DEBUGPY_SENTINEL):
+                        payload = line[len(DEBUGPY_SENTINEL):]
+            if not payload:
+                send({"type": "debugpy_error", "message": "debugpy bootstrap did not report a listening endpoint"})
+                return
+            try:
+                data = json.loads(payload)
+            except Exception as exc:
+                send({"type": "debugpy_error", "message": "invalid debugpy bootstrap payload: {}".format(exc)})
+                return
+            if not isinstance(data, dict) or not data.get("ok"):
+                send({"type": "debugpy_error", "message": (data or {}).get("error", "debugpy bootstrap failed")})
+                return
+            send({
+                "type": "debugpy_ready",
+                "host": data.get("host", "127.0.0.1"),
+                "port": data.get("port"),
+            })
+
 def _drain_iopub_once():
     global _current
-    if not _current or not _kernel_ready():
+    if not _kernel_ready():
         return
     try:
         msg = kc.get_iopub_msg(timeout=0.05)
@@ -150,7 +202,12 @@ def _drain_iopub_once():
         return
 
     parent = msg.get("parent_header", {})
-    if parent.get("msg_id") != _current["msg_id"]:
+    parent_id = parent.get("msg_id")
+    if parent_id and parent_id in _aux_exec_pending:
+        _handle_aux_iopub(parent_id, msg)
+        return
+
+    if not _current or parent_id != _current["msg_id"]:
         return
 
     mtype   = msg["header"]["msg_type"]
@@ -349,6 +406,44 @@ def _maybe_start_next():
     _current = {"seq": seq, "msg_id": msg_id}
     _shell_pending[msg_id] = seq
 
+def _request_debugpy_start(host=None, port=None):
+    if not _kernel_ready():
+        send({"type": "debugpy_error", "message": "Kernel not running"})
+        return
+
+    if _current or _queue:
+        send({"type": "debugpy_error", "message": "Kernel busy; wait for the current cell queue to finish"})
+        return
+
+    host = host or "127.0.0.1"
+    port_expr = "None" if port in (None, "") else repr(int(port))
+    code = """
+import json as __nvim_jupyter_json
+import socket as __nvim_jupyter_socket
+try:
+    import debugpy as __nvim_jupyter_debugpy
+except Exception as __nvim_jupyter_exc:
+    __nvim_jupyter_payload = {{"ok": False, "error": "debugpy import failed: {{}}".format(__nvim_jupyter_exc)}}
+else:
+    __nvim_jupyter_state = globals().get("__nvim_jupyter_debugpy_state")
+    if not __nvim_jupyter_state:
+        __nvim_jupyter_host = {host!r}
+        __nvim_jupyter_port = {port_expr}
+        if __nvim_jupyter_port is None:
+            __nvim_jupyter_sock = __nvim_jupyter_socket.socket()
+            __nvim_jupyter_sock.bind((__nvim_jupyter_host, 0))
+            __nvim_jupyter_port = __nvim_jupyter_sock.getsockname()[1]
+            __nvim_jupyter_sock.close()
+        __nvim_jupyter_debugpy.listen((__nvim_jupyter_host, int(__nvim_jupyter_port)))
+        __nvim_jupyter_state = {{"host": __nvim_jupyter_host, "port": int(__nvim_jupyter_port)}}
+        globals()["__nvim_jupyter_debugpy_state"] = __nvim_jupyter_state
+    __nvim_jupyter_payload = {{"ok": True, "host": __nvim_jupyter_state["host"], "port": int(__nvim_jupyter_state["port"])}}
+print("{sentinel}" + __nvim_jupyter_json.dumps(__nvim_jupyter_payload))
+""".format(host=host, port_expr=port_expr, sentinel=DEBUGPY_SENTINEL)
+
+    msg_id = kc.execute(code, store_history=False, allow_stdin=False)
+    _aux_exec_pending[msg_id] = {"kind": "debugpy_start", "stream": [], "error": None}
+
 # ---------- command handling ----------
 def _handle_command(req):
     typ = req.get("type")
@@ -383,6 +478,8 @@ def _handle_command(req):
         elif typ == "inspect":
             _request_inspect(req.get("expr"), req.get("cursor_pos"),
                              req.get("detail"), req.get("prefer_control", True))
+        elif typ == "debugpy_start":
+            _request_debugpy_start(req.get("host"), req.get("port"))
     except Exception as e:
         send({"type": "error", "seq": req.get("seq"),
               "ename": e.__class__.__name__,

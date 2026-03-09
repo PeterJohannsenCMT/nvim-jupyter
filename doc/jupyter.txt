@@ -43,6 +43,8 @@ Key features:
 - Python 3.7 or later
 - jupyter-client Python package
 - A Jupyter kernel (typically python3 or ipython)
+- debugpy in the kernel environment for |:JupyterDebugCell|
+- mfussenegger/nvim-dap for editor-side debugging
 
 Install Python dependencies: >
     pip install jupyter-client
@@ -154,6 +156,21 @@ Manual installation: >
                         markers). After execution, cursor moves to the next
                         cell or end of buffer.
 
+                                                        *:JupyterDebugCell*
+:JupyterDebugCell       Attach nvim-dap to the live kernel through debugpy
+                        and run the current cell under the debugger while
+                        keeping the notebook state alive.
+
+                                                       *:JupyterDebugWatch*
+:JupyterDebugWatch      Add an expression to the dap-ui watches pane. With no
+                        argument it uses the symbol under cursor or the visual
+                        selection.
+
+                                                        *:JupyterDebugEval*
+:JupyterDebugEval       Evaluate an expression in a dap-ui popup. With no
+                        argument it uses the symbol under cursor or the visual
+                        selection.
+
                                                       *:JupyterRunCellStay*
 :JupyterRunCellStay     Execute the current cell but keep cursor position
                         unchanged.
@@ -201,6 +218,9 @@ The plugin automatically sets up these keybindings for Python files:
 
 Normal mode:
   <leader>jx        Execute current cell               |:JupyterRunCellSmart|
+  <leader>jd        Debug current cell                 |:JupyterDebugCell|
+  <leader>jw        Watch expr/selection               |:JupyterDebugWatch|
+  <leader>je        Eval expr/selection                |:JupyterDebugEval|
   <leader>jt        Toggle cell jumping                |:JupyterRunCellAdvance|
   <leader>jC        Execute cell, stay in place        |:JupyterRunCellStay|
   <leader>jl        Execute current line               |:JupyterRunLine|
@@ -258,8 +278,46 @@ passing options to the setup function: >
       run = {
         advance_to_next_cell = true, -- smart run jumps to next cell when true
       },
+
+      -- nvim-dap / debugpy integration
+      dap = {
+        enabled = true,
+        host = "127.0.0.1",
+        port = nil,            -- nil picks a free port inside the kernel
+        just_my_code = false,
+        open_dapui = true,     -- setup/open dap-ui with a Jupyter layout
+      },
     })
 <
+
+                                                   *jupyter-dap-debugging*
+Debugging Cells With nvim-dap~
+
+|:JupyterDebugCell| boots debugpy inside the running Jupyter kernel, attaches
+nvim-dap to that live kernel, then executes the current cell against the
+original buffer path and line numbers. This allows ordinary breakpoints in the
+`.py` buffer to bind when the cell runs.
+
+Requirements:
+- Save the file before debugging, so the debugger has a stable source path
+- Install debugpy in the same Python environment as the running kernel
+- Install nvim-dap so `require("dap")` succeeds inside Neovim
+
+Typical flow:
+1. Start the kernel with |:JupyterStart|
+2. Set breakpoints in the Python buffer using your normal nvim-dap mappings
+3. Run |:JupyterDebugCell| or press `<leader>jd`
+4. Use |:JupyterDebugWatch| / `<leader>jw` to pin variables into the Watches pane
+5. Use |:JupyterDebugEval| / `<leader>je` for a quick popup value
+6. Continue/step/evaluate with your usual nvim-dap commands
+
+Fallback dap-ui layout:
+- Left sidebar: Scopes, Watches, Stacks
+- Bottom tray: Console, REPL, Breakpoints
+
+This keeps frequently inspected values visible and avoids spending a large
+panel on the extra background threads that often exist in a live Jupyter
+kernel.
 
                                                     *jupyter-python-detection*
 Python Environment Detection~
@@ -307,6 +365,8 @@ Cell Behavior:
 - When the cursor is on a marker line, execution includes the cell BELOW that
   marker
 - When the cursor is inside a cell, that entire cell is executed
+- Put `# jupyter: skip` as the first non-empty line inside a cell to make
+  cell-based commands skip it
 - Files without any markers will show a warning when trying to run cells
 
 Highlight groups:~
@@ -372,6 +432,9 @@ Components:
   communication with the Python bridge process
 - Kernel (`lua/jupyter/kernel.lua`): Manages execution queue, message
   handling, and kernel lifecycle
+- DAP integration (`lua/jupyter/dap.lua`): Starts debugpy in the live kernel,
+  registers an nvim-dap adapter, and executes debug cells with original file
+  paths and line numbers
 - UI (`lua/jupyter/ui.lua`): Handles signs, virtual text, and output display
   in Neovim buffers
 - Utils (`lua/jupyter/utils.lua`): Cell detection and buffer manipulation
@@ -422,6 +485,24 @@ Solution:
 - Try |:JupyterInterrupt| to cancel current execution
 - Use |:JupyterRestart| to restart the kernel
 - Check Python environment has required packages
+
+"JupyterDebugCell says nvim-dap is missing"~
+Cause: nvim-dap is not installed or not on the runtimepath
+Solution:
+- Install mfussenegger/nvim-dap
+- Confirm `:lua print(require('dap'))` works in Neovim
+
+"JupyterDebugCell cannot import debugpy"~
+Cause: debugpy is missing from the kernel environment
+Solution:
+- Install debugpy in the same Python environment as the kernel
+
+"Breakpoints do not bind"~
+Cause: The debugger has no stable file path or line mapping
+Solution:
+- Save the file before running |:JupyterDebugCell|
+- Set breakpoints in the `.py` buffer, then rerun the debug command
+- Verify you are debugging the same file currently open in Neovim
 - Verify code syntax is correct
 
 "Wrong Python environment"~

@@ -5,6 +5,7 @@ local utils  = require "jupyter.utils"
 local ui  = require "jupyter.ui"
 local out    = require "jupyter.outbuf"
 local run_state  = require "jupyter.state"
+local dap = require "jupyter.dap"
 local M      = {}
 
 vim.g.jupyter_outbuf_hl = "JupyterOutput"
@@ -115,6 +116,10 @@ function M.setup(opts)
     if not cfg.fold then cfg.fold = {} end
     for k, v in pairs(opts.fold) do cfg.fold[k] = v end
   end
+  if opts.dap then
+    if not cfg.dap then cfg.dap = {} end
+    for k, v in pairs(opts.dap) do cfg.dap[k] = v end
+  end
 end
 
 ---------------------------------------------------------------------
@@ -217,6 +222,10 @@ local function run_current_cell_stay()
   if empty then
     return
   end
+  if utils.cell_is_skipped(lines) then
+    vim.notify("Jupyter: skipped cell marked with '# jupyter: skip'", vim.log.levels.INFO)
+    return
+  end
   ui.clear_range(bufnr, s, e + 1)
   ui.clear_signs_range(bufnr, s, e + 1)
   kernel.execute(table.concat(lines, "\n"), e)
@@ -240,6 +249,23 @@ vim.api.nvim_create_user_command("JupyterStop",       confirm_stop, {})
 vim.api.nvim_create_user_command("JupyterRunLine",      function() kernel.eval_line()        end, {})
 vim.api.nvim_create_user_command("JupyterRunSelection", function() kernel.eval_selection()   end, {})
 vim.api.nvim_create_user_command("JupyterRunCell",      function() kernel.eval_current_block() end, {})
+vim.api.nvim_create_user_command("JupyterDebugCell",    function() dap.debug_current_cell() end, {
+  desc = "Attach nvim-dap to the live Jupyter kernel and debug the current cell",
+})
+vim.api.nvim_create_user_command("JupyterDebugWatch", function(opts)
+  dap.watch_expression(opts.args ~= "" and opts.args or nil)
+end, {
+  nargs = "?",
+  range = true,
+  desc = "Add a watch expression from the cursor, selection, or explicit argument",
+})
+vim.api.nvim_create_user_command("JupyterDebugEval", function(opts)
+  dap.eval_expression(opts.args ~= "" and opts.args or nil)
+end, {
+  nargs = "?",
+  range = true,
+  desc = "Evaluate an expression at the current debug stop",
+})
 vim.api.nvim_create_user_command("JupyterRunAbove",      function() kernel.eval_all_above() end, {})
 vim.api.nvim_create_user_command("JupyterGotoRunningCell", function() kernel.goto_running_cell() end, {
   desc = "Jupyter: jump to the currently running cell",
@@ -322,6 +348,11 @@ vim.api.nvim_create_autocmd("FileType", {
 	callback = function(ev)
 		local buf = ev.buf
 		vim.keymap.set("n", "<leader>jx", "<cmd>JupyterRunCellSmart<CR>",     { buffer = buf, desc = "Jupyter: execute cell" })
+		vim.keymap.set("n", "<leader>jd", "<cmd>JupyterDebugCell<CR>",        { buffer = buf, desc = "Jupyter: debug cell" })
+		vim.keymap.set("n", "<leader>jw", "<cmd>JupyterDebugWatch<CR>",       { buffer = buf, desc = "Jupyter: watch expression" })
+		vim.keymap.set("v", "<leader>jw", "<cmd>JupyterDebugWatch<CR>",       { buffer = buf, desc = "Jupyter: watch selection" })
+		vim.keymap.set("n", "<leader>je", "<cmd>JupyterDebugEval<CR>",        { buffer = buf, desc = "Jupyter: eval expression" })
+		vim.keymap.set("v", "<leader>je", "<cmd>JupyterDebugEval<CR>",        { buffer = buf, desc = "Jupyter: eval selection" })
 		vim.keymap.set("n", "<leader>jt", "<cmd>JupyterRunCellAdvance toggle<CR>",     { buffer = buf, desc = "Jupyter: execute cell" })
 		vim.keymap.set("n", "<leader>jC", "<cmd>JupyterRunCellStay<CR>", { desc = "Jupyter: run cell (stay)" })
 		vim.keymap.set("n", "<leader>jl",  "<cmd>JupyterRunLine<CR>",      { buffer = buf, desc = "Jupyter: run line" })

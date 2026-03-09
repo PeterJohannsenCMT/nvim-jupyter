@@ -14,6 +14,9 @@ local queue        = {}   -- FIFO of {seq, code}
 local inflight     = false
 local ready        = false
 local had_error    = {}   -- seq -> true if an error was seen before 'done'
+local ready_waiters = {}
+local debugpy_waiters = {}
+local debugpy_state = nil
 local stream_queue = {}
 local stream_flushing = false
 local last_handle_log = 0
@@ -310,6 +313,8 @@ local function normalize_magic_lines(code)
   return table.concat(lines, "\n")
 end
 
+M.normalize_code = normalize_magic_lines
+
 local function extract_error_lineno(msg)
   local tb = msg and msg.traceback
   if not tb then return nil end
@@ -387,6 +392,14 @@ local function ensure_bridge()
 
     if t == "ready" then
       ready = true
+      debugpy_state = nil
+      if #ready_waiters > 0 then
+        local callbacks = ready_waiters
+        ready_waiters = {}
+        for _, cb in ipairs(callbacks) do
+          pcall(cb)
+        end
+      end
       if not inflight and #queue > 0 then
         inflight = true
         M.bridge:send({ type = "execute", code = queue[1].code, seq = queue[1].seq })
@@ -438,6 +451,28 @@ local function ensure_bridge()
       out.append(msg.seq, ("[image saved: %s]"):format(msg.path or ""))
       return
 
+    elseif t == "debugpy_ready" then
+      debugpy_state = {
+        host = msg.host or "127.0.0.1",
+        port = tonumber(msg.port),
+      }
+      local callbacks = debugpy_waiters
+      debugpy_waiters = {}
+      for _, cb in ipairs(callbacks) do
+        pcall(cb, debugpy_state)
+      end
+      return
+
+    elseif t == "debugpy_error" then
+      local callbacks = debugpy_waiters
+      debugpy_waiters = {}
+      debugpy_state = nil
+      vim.notify("Jupyter: " .. (msg.message or "debugpy bootstrap failed"), vim.log.levels.ERROR)
+      for _, cb in ipairs(callbacks) do
+        pcall(cb, nil, msg.message)
+      end
+      return
+
     elseif t == "error" then
       local s  = msg.seq
       local tb = msg.traceback or ((msg.ename or "Error") .. ": " .. (msg.evalue or ""))
@@ -452,10 +487,14 @@ local function ensure_bridge()
 			if bufnr and row then
 				local diag_row = row
 				local err_line = extract_error_lineno(msg)
-				if err_line and err_line >= 1 and cell and cell.start_row then
-					diag_row = cell.start_row + err_line - 1
-				end
-				if cell and cell.start_row then
+				if err_line and err_line >= 1 then
+          if cell and cell.absolute_lineno then
+            diag_row = err_line - 1
+          elseif cell and cell.start_row then
+					  diag_row = cell.start_row + err_line - 1
+          end
+					end
+				if cell and cell.start_row and not cell.absolute_lineno then
 					if diag_row < cell.start_row then diag_row = cell.start_row end
 					if diag_row > row then diag_row = row end
 				end
@@ -555,6 +594,9 @@ local function ensure_bridge()
         pcall(function() M.bridge:close() end)
       end
       M.bridge = nil; ready = false; inflight = false; queue = {}
+      debugpy_state = nil
+      debugpy_waiters = {}
+      ready_waiters = {}
       ui.clear_all_signs()
       return
     end
@@ -584,6 +626,9 @@ function M.stop()
   queue = {}
   pending = {}
   had_error = {}
+  ready_waiters = {}
+  debugpy_waiters = {}
+  debugpy_state = nil
   _inline_rl:reset()
   ui.clear_all_signs()
   -- Clean up throttle timers if throttle module is loaded
@@ -618,9 +663,44 @@ end
 
 function M.restart()
   if not M.bridge then return end
+  debugpy_state = nil
+  debugpy_waiters = {}
   local cfg = get_cfg()
   local cwd = vim.fn.getcwd()
   M.bridge:send({ type = "restart", kernel = cfg.kernel_name or "python3", cwd = cwd })
+end
+
+function M.on_ready(cb)
+  if type(cb) ~= "function" then return end
+  if not ensure_bridge() then return end
+  if ready then
+    cb()
+    return
+  end
+  table.insert(ready_waiters, cb)
+end
+
+function M.ensure_debugpy(cb)
+  if type(cb) ~= "function" then return end
+  M.on_ready(function()
+    if debugpy_state and debugpy_state.host and debugpy_state.port then
+      cb(debugpy_state)
+      return
+    end
+
+    table.insert(debugpy_waiters, cb)
+    if #debugpy_waiters > 1 then
+      return
+    end
+
+    local cfg = get_cfg()
+    local dap_cfg = cfg.dap or {}
+    M.bridge:send({
+      type = "debugpy_start",
+      host = dap_cfg.host or "127.0.0.1",
+      port = dap_cfg.port,
+    })
+  end)
 end
 
 function M.pause()
@@ -701,6 +781,14 @@ local function get_head_cell()
   return pending[head.seq]
 end
 
+local function notify_skipped_cell(context)
+  local msg = "Jupyter: skipped cell marked with '# jupyter: skip'"
+  if context and context ~= "" then
+    msg = msg .. " (" .. context .. ")"
+  end
+  vim.notify(msg, vim.log.levels.INFO)
+end
+
 function M.goto_running_cell()
   local cell = get_head_cell()
   if not cell then
@@ -733,8 +821,9 @@ function M.goto_running_cell()
 end
 
 -- Execute code from a given source row (0-based)
-function M.execute(code, row, marker_text)
+function M.execute(code, row, marker_text, opts)
   if not ensure_bridge() then return end
+  opts = opts or {}
   local send_code = normalize_magic_lines(code or "")
 
   -- Remember owner buffer to place signs/inline correctly
@@ -751,7 +840,13 @@ function M.execute(code, row, marker_text)
 
   seq = seq + 1
   local bufnr = M.owner_buf
-  pending[seq] = { row = row, start_row = start_row, bufnr = bufnr }
+  pending[seq] = {
+    row = row,
+    start_row = start_row,
+    bufnr = bufnr,
+    source_path = opts.source_path,
+    absolute_lineno = opts.absolute_lineno == true,
+  }
   had_error[seq] = nil
 
   out.start_cell(seq, marker_text)  -- open output header now, with optional marker text
@@ -774,6 +869,19 @@ function M.eval_current_block()
   local empty = true
   for _, L in ipairs(lines) do if not L:match("^%s*$") then empty = false; break end end
   if empty then return end
+  if utils.cell_is_skipped(lines) then
+    notify_skipped_cell("run")
+    local next_row0 = utils.first_line_of_next_cell_from(e)
+    if next_row0 then
+      vim.api.nvim_win_set_cursor(0, { next_row0 + 1, 0 })
+    else
+      local last_row0 = vim.api.nvim_buf_line_count(0) - 1
+      if last_row0 >= 0 then
+        vim.api.nvim_win_set_cursor(0, { last_row0 + 1, 0 })
+      end
+    end
+    return
+  end
   local code = table.concat(lines, "\n")
 	ui.clear_range(bufnr, s, e+1)
 	ui.clear_signs_range(bufnr, s, e+1)
@@ -812,8 +920,53 @@ end
 -- Convenience: run all above
 function M.eval_all_above()
 	local current_line = vim.api.nvim_win_get_cursor(0)[1]
-  local lines = vim.api.nvim_buf_get_lines(0, 0, current_line+1, false)
-  local code = table.concat(lines, "\n")
+  local bufnr = vim.api.nvim_get_current_buf()
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, current_line + 1, false)
+  local state = utils.get_marker_state(bufnr)
+  local skip_ranges = {}
+
+  if #state.order > 0 then
+    for idx, marker_row in ipairs(state.order) do
+      if marker_row > current_line then
+        break
+      end
+      local start_row = marker_row + 1
+      local next_marker = state.order[idx + 1]
+      local end_row = next_marker and math.min(next_marker - 1, current_line) or current_line
+      if start_row <= end_row then
+        local cell_lines = vim.api.nvim_buf_get_lines(bufnr, start_row, end_row + 1, false)
+        if utils.cell_is_skipped(cell_lines) then
+          table.insert(skip_ranges, { start_row = start_row, end_row = end_row })
+        end
+      end
+    end
+  end
+
+  local filtered = {}
+  local range_idx = 1
+  local skipped_any = false
+  for row1, line in ipairs(lines) do
+    local row0 = row1 - 1
+    while skip_ranges[range_idx] and row0 > skip_ranges[range_idx].end_row do
+      range_idx = range_idx + 1
+    end
+    local range = skip_ranges[range_idx]
+    local in_skipped_range = range and row0 >= range.start_row and row0 <= range.end_row
+    if in_skipped_range then
+      skipped_any = true
+    else
+      table.insert(filtered, line)
+    end
+  end
+
+  if skipped_any then
+    notify_skipped_cell("run-above")
+  end
+
+  local code = table.concat(filtered, "\n")
+  if code:match("^%s*$") then
+    return
+  end
   M.execute(code, current_line - 1)  -- anchor at end row
 end
 
@@ -866,6 +1019,10 @@ function M.run_cells_by_indices(indices)
       end
 
       if not empty then
+        if utils.cell_is_skipped(lines) then
+          notify_skipped_cell("cell " .. idx)
+          goto continue
+        end
         ui.clear_range(bufnr, s, e + 1)
         ui.clear_signs_range(bufnr, s, e + 1)
 
@@ -888,6 +1045,7 @@ function M.run_cells_by_indices(indices)
     else
       vim.notify("Jupyter: cell " .. idx .. " not found", vim.log.levels.WARN)
     end
+    ::continue::
   end
 end
 

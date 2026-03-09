@@ -28,6 +28,13 @@ local M = {
 	run = {
 		advance_to_next_cell = true, -- Whether smart run should jump to the next cell
 	},
+	dap = {
+		enabled = true,
+		host = "127.0.0.1",
+		port = nil, -- Fixed port for debugpy.listen(); nil picks a free port inside the kernel
+		just_my_code = false,
+		open_dapui = true,
+	},
 	ui = {
 		show_cell_borders = true, -- Show virtual lines above/below #%% markers
 		highlight_metadata = true,

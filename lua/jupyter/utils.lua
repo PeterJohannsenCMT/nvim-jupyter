@@ -153,6 +153,24 @@ function M.subcell_letter(idx)
   return letter_for_index(idx)
 end
 
+function M.is_skip_directive_line(line)
+  return type(line) == "string"
+    and line:match("^%s*#%s*jupyter%s*:%s*skip%s*$") ~= nil
+end
+
+-- The first non-empty line in a cell can opt the cell out of execution.
+function M.cell_is_skipped(lines)
+  if type(lines) ~= "table" then
+    return false
+  end
+  for _, line in ipairs(lines) do
+    if not line:match("^%s*$") then
+      return M.is_skip_directive_line(line)
+    end
+  end
+  return false
+end
+
 -- Return marker info for the cell that contains the cursor.
 -- If there is no marker (e.g. a file without any #%% markers), returns nil.
 function M.current_cell_marker(opts)
