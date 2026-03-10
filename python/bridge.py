@@ -91,7 +91,7 @@ def _signal_kernel(signame):
     return True, None
 
 # ---------- kernel mgmt ----------
-def _start_kernel(kernel, cwd):
+def _start_kernel(kernel, cwd, optimized=False):
     global km, kc
     if cwd:
         try: os.chdir(cwd)
@@ -104,24 +104,25 @@ def _start_kernel(kernel, cwd):
     if "/bin" not in path.split(":"):
         path = path + (":" if path else "") + "/bin"
     extra_env["PATH"] = "/Library/TeX/texbin:" + path
+    if optimized:
+        extra_env["PYTHONOPTIMIZE"] = "2"
+    else:
+        extra_env["PYTHONOPTIMIZE"] = "0"
     km.start_kernel(env = extra_env)
     kc = km.client()
     kc.start_channels()
     kc.wait_for_ready(timeout=30)
     send({"type": "ready"})
 
-def _restart_kernel():
+def _restart_kernel(kernel, cwd, optimized=False):
     global kc, _current, _queue, _shell_pending, _inspect_pending
+    _safe_shutdown_kernel(now=True)
     _safe_stop_channels()
     _current = None
     _queue.clear()
     _shell_pending.clear()
     _inspect_pending.clear()
-    km.restart_kernel(now=True)
-    kc = km.client()
-    kc.start_channels()
-    kc.wait_for_ready(timeout=30)
-    send({"type": "ready"})
+    _start_kernel(kernel, cwd, optimized=optimized)
 
 def _shutdown():
     global km, kc, _current, _shell_pending, _inspect_pending
@@ -449,7 +450,11 @@ def _handle_command(req):
     typ = req.get("type")
     try:
         if typ == "start":
-            _start_kernel(req.get("kernel") or "python3", req.get("cwd"))
+            _start_kernel(
+                req.get("kernel") or "python3",
+                req.get("cwd"),
+                optimized=bool(req.get("optimized")),
+            )
         elif typ == "execute":
             _queue.append((req["seq"], req["code"]))
         elif typ == "stdin_reply":
@@ -472,7 +477,12 @@ def _handle_command(req):
             else:
                 send({"type": "resume_failed", "message": err})
         elif typ == "restart":
-            if km: _restart_kernel()
+            if km:
+                _restart_kernel(
+                    req.get("kernel") or "python3",
+                    req.get("cwd"),
+                    optimized=bool(req.get("optimized")),
+                )
         elif typ == "shutdown":
             _shutdown(); send({"type": "bye"}); return False
         elif typ == "inspect":

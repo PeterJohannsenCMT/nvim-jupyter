@@ -21,6 +21,7 @@ local stream_queue = {}
 local stream_flushing = false
 local last_handle_log = 0
 local handle_log_path = nil
+local optimized_start = false
 
 -- inline preview rate-limiter: collapse multiple updates per row into <= ~25 Hz
 local _inline_rl = {
@@ -605,7 +606,12 @@ local function ensure_bridge()
   -- Start the kernel
   local cfg = get_cfg()
   local cwd = vim.fn.getcwd()
-  M.bridge:send({ type = "start", kernel = cfg.kernel_name or "python3", cwd = cwd })
+  M.bridge:send({
+    type = "start",
+    kernel = cfg.kernel_name or "python3",
+    cwd = cwd,
+    optimized = optimized_start,
+  })
   return true
 end
 
@@ -657,17 +663,28 @@ function M.interrupt(opts)
   M.bridge:send({ type = "interrupt" })
 end
 
-function M.start()
+function M.start(opts)
+  opts = opts or {}
+  optimized_start = opts.optimized == true
   return ensure_bridge()
 end
 
-function M.restart()
+function M.restart(opts)
+  opts = opts or {}
   if not M.bridge then return end
   debugpy_state = nil
   debugpy_waiters = {}
+  if opts.optimized ~= nil then
+    optimized_start = opts.optimized == true
+  end
   local cfg = get_cfg()
   local cwd = vim.fn.getcwd()
-  M.bridge:send({ type = "restart", kernel = cfg.kernel_name or "python3", cwd = cwd })
+  M.bridge:send({
+    type = "restart",
+    kernel = cfg.kernel_name or "python3",
+    cwd = cwd,
+    optimized = optimized_start,
+  })
 end
 
 function M.on_ready(cb)

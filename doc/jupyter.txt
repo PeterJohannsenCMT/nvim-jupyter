@@ -116,6 +116,10 @@ Manual installation: >
                         your Python environment (conda/virtualenv) or uses
                         the configured python_cmd.
 
+                                                 *:JupyterStartOptimized*
+:JupyterStartOptimized  Start a new Jupyter kernel with Python optimization
+                        level 2 enabled (`-OO` semantics).
+
                                                           *:JupyterRestart*
 :JupyterRestart         Restart the current kernel. All variables will be
                         lost, but the connection remains active.
@@ -327,6 +331,8 @@ The plugin automatically detects your Python environment in this order:
    variable is set
 2. Fallback: Uses `python3` from your PATH
 3. Override: Set `python_cmd` in configuration to use a specific Python
+4. Optional optimization: |:JupyterStartOptimized| starts the Jupyter kernel
+   with `PYTHONOPTIMIZE=2` (`sys.flags.optimize == 2`)
 
 This ensures that the plugin uses the same Python environment as your current
 shell session.

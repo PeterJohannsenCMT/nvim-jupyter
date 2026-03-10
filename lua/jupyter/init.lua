@@ -240,6 +240,7 @@ local function run_cell_smart()
 end
 
 vim.api.nvim_create_user_command("JupyterStart",      function() kernel.start()            end, {})
+vim.api.nvim_create_user_command("JupyterStartOptimized", function() kernel.start({ optimized = true }) end, {})
 vim.api.nvim_create_user_command("JupyterRestart",    function() kernel.restart()          end, {})
 vim.api.nvim_create_user_command("JupyterPause",      function() kernel.pause()            end, {})
 vim.api.nvim_create_user_command("JupyterResume",     function() kernel.resume()           end, {})

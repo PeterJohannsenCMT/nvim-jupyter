@@ -112,6 +112,7 @@ The plugin automatically sets up these keybindings for Python files:
 
 ### Kernel Management
 - `:JupyterStart` - Start a new Jupyter kernel
+- `:JupyterStartOptimized` - Start a new Jupyter kernel with Python `-OO` semantics
 - `:JupyterRestart` - Restart the current kernel
 - `:JupyterPause` - Pause the kernel process (Unix only, uses `SIGSTOP`)
 - `:JupyterResume` - Resume a paused kernel (Unix only, uses `SIGCONT`)
@@ -229,6 +230,7 @@ The plugin automatically detects your Python environment:
 1. **Conda**: Uses `$CONDA_PREFIX/bin/python` if available
 2. **Fallback**: Uses `python3` from PATH
 3. **Override**: Set `python_cmd` in configuration
+4. **Optional optimization**: `:JupyterStartOptimized` starts the Jupyter kernel with `PYTHONOPTIMIZE=2` (`sys.flags.optimize == 2`)
 
 ## 🎨 Cell Markers
 
