@@ -186,13 +186,15 @@ local function flush_stream_queue()
         maybe_log_handles(string.format("flush seq=%s len=%d", tostring(entry.seq), #text), false)
         local is_error = (entry.name == "stderr")
         out.append_stream(entry.seq, text, is_error)
-        -- DISABLED: inline updates during rapid output can cause EMFILE
-        -- local cell  = pending[entry.seq]
-        -- local bufnr = (cell and cell.bufnr) or M.owner_buf or vim.api.nvim_get_current_buf()
-        -- local row   = cell and cell.row
-        -- if bufnr and row then
-        --   _inline_rl:push(bufnr, row, text, is_error)
-        -- end
+        local _icfg_ok, _icfg = pcall(require, "jupyter.config")
+        if _icfg_ok and _icfg.inline and _icfg.inline.enabled then
+          local cell  = pending[entry.seq]
+          local bufnr = (cell and cell.bufnr) or M.owner_buf or vim.api.nvim_get_current_buf()
+          local row   = cell and cell.row
+          if bufnr and row then
+            _inline_rl:push(bufnr, row, text, is_error)
+          end
+        end
       end
     end
   end

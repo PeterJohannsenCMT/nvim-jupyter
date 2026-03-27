@@ -120,6 +120,10 @@ function M.setup(opts)
     if not cfg.dap then cfg.dap = {} end
     for k, v in pairs(opts.dap) do cfg.dap[k] = v end
   end
+  if opts.inline then
+    if not cfg.inline then cfg.inline = {} end
+    for k, v in pairs(opts.inline) do cfg.inline[k] = v end
+  end
 end
 
 ---------------------------------------------------------------------
@@ -301,6 +305,12 @@ end, {
   desc = "Toggle or set whether smart run advances to next cell",
 })
 vim.api.nvim_create_user_command("JupyterToggleOut",  function() out.toggle()              end, {})
+vim.api.nvim_create_user_command("JupyterToggleInlineOutput", function()
+  local ok, cfg = pcall(require, "jupyter.config")
+  if not ok or not cfg.inline then return end
+  cfg.inline.enabled = not cfg.inline.enabled
+  vim.notify("Jupyter: inline output " .. (cfg.inline.enabled and "enabled" or "disabled"))
+end, { desc = "Toggle inline virtual-text output" })
 
 vim.api.nvim_create_user_command("JupyterInterrupt", function()
   require("jupyter.kernel").interrupt({})

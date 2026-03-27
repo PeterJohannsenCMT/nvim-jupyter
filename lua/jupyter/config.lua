@@ -46,5 +46,8 @@ local M = {
 	fold = {
 		close_cells_on_open = false, -- Automatically close all folds when opening a Python file with #%% markers
 	},
+	inline = {
+		enabled = false, -- opt-in; rapid output can cause EMFILE errors
+	},
 }
 return M

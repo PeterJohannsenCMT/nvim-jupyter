@@ -63,6 +63,7 @@ api.nvim_create_autocmd("ColorScheme", {
 -- Per-buffer state
 local inline_mark = {}        -- [bufnr][row] = extmark_id
 local row_state   = {}        -- [bufnr][row] = { saw_cr = bool }
+local inline_data = {}        -- [bufnr][row] = { text = string, is_err = bool }
 M._row_state = row_state      -- expose for finish_row()
 
 local function get_row_state(bufnr, row)
@@ -76,6 +77,7 @@ local function get_cfg()
     enabled    = true,
     strip_ansi = true,
     maxlen     = 300,
+    max_lines  = 20,
     prefix     = " ⟶ ",
     hl_normal  = "MoltenOutputWin",
     hl_error   = "DiagnosticError",
@@ -88,39 +90,7 @@ local function get_cfg()
 end
 
 -- ANSI
-local ANSI_CSI       = "\27%[[0-?]*[ -/]*[@-~]"
-local ANSI_ERASE_EOL = "\27%[[0-?]*%d?K"
-
-local function sanitize_for_inline(text)
-  local cfg = get_cfg().inline
-  local raw = tostring(text or "")
-  local s   = raw:gsub("\r\n", "\n")
-
-  local has_cr = s:find("\r", 1, true) ~= nil
-  local frame
-  if has_cr then
-    frame = (s:match("[^\r]*$") or s)
-    frame = (frame:match("[^\n]*$") or frame)
-  else
-    local last_non_empty = nil
-    for line in (s .. "\n"):gmatch("([^\n]*)\n") do
-      if not line:match("^%s*$") then last_non_empty = line end
-    end
-    frame = last_non_empty or ""
-  end
-
-  local has_erase = frame:find(ANSI_ERASE_EOL) ~= nil
-  if cfg.strip_ansi then frame = frame:gsub(ANSI_CSI, "") end
-
-  if (has_cr and frame:match("^%s*$")) or (has_erase and frame:match("^%s*$")) then
-    return "", has_cr, raw
-  end
-
-  frame = frame:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
-  local maxlen = tonumber(cfg.maxlen) or 0
-  if maxlen > 0 and #frame > maxlen then frame = frame:sub(1, maxlen - 1) .. "…" end
-  return frame, has_cr, raw
-end
+local ANSI_CSI = "\27%[[0-?]*[ -/]*[@-~]"
 
 local function clear_inline_mark(bufnr, row)
   local bm = inline_mark[bufnr]
@@ -133,12 +103,98 @@ local function clear_inline_mark(bufnr, row)
   if row_state[bufnr] then row_state[bufnr][row] = nil end
 end
 
+-- Returns 0-based (cell_start, cell_end) for the cell that contains cursor_line, or nil
+local function get_cursor_cell_range(bufnr, cursor_line)
+  local state = utils.get_marker_state(bufnr)
+  local marker_rows = state and state.order or {}
+  if #marker_rows == 0 then return nil end
+
+  local cell_start = nil
+  local next_cell_start = nil
+  for i, mr in ipairs(marker_rows) do
+    if mr <= cursor_line then
+      cell_start = mr
+      next_cell_start = marker_rows[i + 1]
+    else
+      break
+    end
+  end
+
+  if cell_start == nil then return nil end
+  local line_count = vim.api.nvim_buf_line_count(bufnr)
+  local cell_end = next_cell_start and (next_cell_start - 1) or math.max(line_count - 1, 0)
+  return cell_start, cell_end
+end
+
+-- Returns a list of non-empty display lines from raw output text
+local function format_output_lines(text, cfg)
+  local raw = tostring(text or "")
+  if cfg.strip_ansi then raw = raw:gsub(ANSI_CSI, "") end
+  local lines = {}
+  for line in (raw .. "\n"):gmatch("([^\n]*)\n") do
+    line = (line:match("[^\r]*$") or line):gsub("%s+$", "")
+    if line ~= "" then lines[#lines + 1] = line end
+  end
+  return lines
+end
+
+-- Render full multi-line output as virt_lines for an (bufnr, row) entry in inline_data
+local function render_inline_mark(bufnr, row)
+  local bd = inline_data[bufnr]
+  if not bd or not bd[row] then return end
+  local data = bd[row]
+  local cfg = get_cfg().inline
+  local is_err = data.is_err
+  local hl = is_err and (cfg.hl_error or "DiagnosticError") or (cfg.hl_normal or "Comment")
+  if type(hl) ~= "string" or hl == "" then hl = "Comment" end
+
+  local lines = format_output_lines(data.text, cfg)
+  if #lines == 0 then lines = { "Done!" } end
+
+  local max_lines = tonumber(cfg.max_lines) or 20
+  if max_lines > 0 and #lines > max_lines then
+    local kept = {}
+    for i = 1, max_lines do kept[i] = lines[i] end
+    kept[#kept + 1] = "… (" .. (#lines - max_lines) .. " more lines)"
+    lines = kept
+  end
+
+  local prefix = cfg.prefix or " ⟶ "
+  local indent = string.rep(" ", vim.fn.strdisplaywidth(prefix))
+  local virt_lines = {}
+  for i, line in ipairs(lines) do
+    virt_lines[#virt_lines + 1] = { { (i == 1 and prefix or indent) .. line, hl } }
+  end
+
+  clear_inline_mark(bufnr, row)
+
+  local id
+  if vim.fn.has("nvim-0.9") == 1 then
+    id = api.nvim_buf_set_extmark(bufnr, M.ns, row, 0, {
+      virt_lines = virt_lines,
+      virt_lines_above = false,
+      hl_mode = "combine",
+      priority = 200,
+    })
+  else
+    id = api.nvim_buf_set_extmark(bufnr, M.ns, row, -1, {
+      virt_text = { { prefix .. lines[1], hl } },
+      virt_text_pos = "eol",
+      hl_mode = "combine",
+    })
+  end
+
+  inline_mark[bufnr] = inline_mark[bufnr] or {}
+  inline_mark[bufnr][row] = id
+end
+
 -- Backward-compatible: ui.clear_row(row) or ui.clear_row(bufnr, row)
 function M.clear_row(a, b)
   local bufnr, row
   if b == nil and type(a) == "number" then bufnr, row = api.nvim_get_current_buf(), a else bufnr, row = a, b end
   if not (bufnr and api.nvim_buf_is_valid(bufnr)) then return end
   clear_inline_mark(bufnr, row)
+  if inline_data[bufnr] then inline_data[bufnr][row] = nil end
 end
 
 function M.clear_all(bufnr)
@@ -146,82 +202,40 @@ function M.clear_all(bufnr)
     api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
     inline_mark[bufnr] = {}
     row_state[bufnr]   = {}
+    inline_data[bufnr] = {}
   end
 end
 
--- Replace-only inline virtual text
+-- Store output for (bufnr, row) and render it if the cursor is currently in that cell.
 function M.show_inline(bufnr, row, text, opts)
   if not (bufnr and api.nvim_buf_is_valid(bufnr)) then return end
-
-  -- Check if inline output is enabled
   local cfg = get_cfg().inline
   if cfg.enabled == false then return end
 
-  local cleaned, has_cr, raw = sanitize_for_inline(text)
-  clear_inline_mark(bufnr, row)
-
-  local want_fallback = (cleaned == "" or cleaned == nil)
-  if want_fallback then cleaned = "Done!" end
-
-  local raw_stripped = (raw or ""):gsub(ANSI_CSI, "")
-  local only_crlf = raw_stripped ~= "" and raw_stripped:gsub("[\r\n]", "") == ""
-
+  -- Track CR-style progress markers
+  local has_cr = tostring(text or ""):find("\r", 1, true) ~= nil
   local st = get_row_state(bufnr, row)
-  -- Don't short-circuit when we intend to show the fallback
-  if st.saw_cr and only_crlf and not want_fallback then
-    st.saw_cr = false
-    return
-  end
   if has_cr then st.saw_cr = true end
 
-  local cfg = get_cfg().inline
-  local is_err = opts and opts.error or false
-  local hl = is_err and cfg.hl_error or cfg.hl_normal
-  if type(hl) ~= "string" or hl == "" then
-    -- Ensure we pass a *group name*, not a table
-    hl = "Comment"
-  end
+  -- Persist the data
+  inline_data[bufnr] = inline_data[bufnr] or {}
+  inline_data[bufnr][row] = { text = text, is_err = opts and opts.error or false }
 
-  local chunk = { (cfg.prefix or " ⟶ ") .. cleaned, hl }
-
-  local ext_opts
-  if vim.fn.has("nvim-0.9") == 1 then
-    -- Prefer virt_lines; use col=0 (not -1)
-    ext_opts = {
-      virt_lines = { { chunk } },  -- list-of-lines, each line = list-of-chunks
-      virt_lines_above = false,
-      hl_mode = "combine",
-    }
-    id = api.nvim_buf_set_extmark(bufnr, ns, row, 0, ext_opts)
-  else
-    -- Fallback for older Neovim: show at EOL on the same row
-    ext_opts = {
-      virt_text = { chunk },
-      virt_text_pos = "eol",
-      hl_mode = "combine",
-    }
-    id = api.nvim_buf_set_extmark(bufnr, ns, row, -1, ext_opts)
-  end
-
-  if is_err then
-    -- vim.notify ignores {hl=...} in many UIs; ensure red by level.
-    -- If the cleaned inline text is empty (e.g. only control codes), fall back to
-    -- the raw text so the hit-enter prompt is informative.
-    local notif = cleaned
-    if notif == nil or notif == "" then
-      notif = raw_stripped
+  -- Only render when cursor is inside this cell
+  local wins = vim.fn.win_findbuf(bufnr)
+  local cursor_line
+  for _, win in ipairs(wins) do
+    if api.nvim_win_is_valid(win) then
+      cursor_line = api.nvim_win_get_cursor(win)[1] - 1
+      break
     end
-    -- Trim both ends to avoid a leading blank line triggering an empty prompt
-    notif = (notif or ""):gsub("^%s+", ""):gsub("%s+$", "")
-    if notif == "" then
-      notif = "Jupyter error (see outbuf)"
-    end
-    -- Use vim.notify so custom UIs still work; ERROR level keeps it in :messages.
-    -- pcall(vim.notify, notif, vim.log.levels.ERROR, { title = "nvim-jupyter" })
   end
+  if cursor_line == nil then return end
 
-  inline_mark[bufnr] = inline_mark[bufnr] or {}
-  inline_mark[bufnr][row] = id
+  local s, e = get_cursor_cell_range(bufnr, cursor_line)
+  if s and e and row >= s and row <= e then
+    render_inline_mark(bufnr, row)
+  end
 end
 
 -- Clear inline on completion only if we saw a progress-style CR
@@ -232,9 +246,45 @@ function M.finish_row(a, b)
   local sb = row_state[bufnr]
   local st = sb and sb[row]
   if st and st.saw_cr then
-    M.clear_row(bufnr, row)
+    if inline_data[bufnr] then inline_data[bufnr][row] = nil end
+    clear_inline_mark(bufnr, row)
   end
   if st then st.saw_cr = false end
+end
+
+-- Refresh inline marks based on cursor position. Called from highlight_cells() on cursor move.
+function M.refresh_inline(bufnr, cursor_line)
+  if not (bufnr and api.nvim_buf_is_valid(bufnr)) then return end
+
+  -- Clear all existing inline marks for this buffer
+  api.nvim_buf_clear_namespace(bufnr, M.ns, 0, -1)
+  inline_mark[bufnr] = {}
+
+  local cfg = get_cfg().inline
+  if cfg.enabled == false then return end
+
+  local bd = inline_data[bufnr]
+  if not bd or not next(bd) then return end
+
+  if cursor_line == nil then
+    local wins = vim.fn.win_findbuf(bufnr)
+    for _, win in ipairs(wins) do
+      if api.nvim_win_is_valid(win) then
+        cursor_line = api.nvim_win_get_cursor(win)[1] - 1
+        break
+      end
+    end
+  end
+  if cursor_line == nil then return end
+
+  local s, e = get_cursor_cell_range(bufnr, cursor_line)
+  if not s then return end
+
+  for row, _ in pairs(bd) do
+    if row >= s and row <= e then
+      render_inline_mark(bufnr, row)
+    end
+  end
 end
 
 -- Signs -----------------------------------------------------------------------
@@ -467,6 +517,9 @@ function M.clear_range(bufnr, srow, erow)
   end
   if vim.tbl_isempty(M._row_state[bufnr] or {}) then
     M._row_state[bufnr] = {}
+  end
+  if inline_data[bufnr] then
+    for r = srow, erow do inline_data[bufnr][r] = nil end
   end
 end
 
@@ -754,12 +807,14 @@ function M.highlight_cells()
           vim.api.nvim_buf_set_extmark(bufnr, ns, content_end, 0, {
             virt_lines = { { { padding_bottom, border_hl } } },
             virt_lines_above = false,
+            priority = 100,  -- below inline output (priority=200) so border appears after it
           })
         end
       end
     end
   end
 	_G.CellCount = parent_total
+  M.refresh_inline(bufnr, cursor_line)
 end
 
 return M
