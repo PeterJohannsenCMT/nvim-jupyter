@@ -190,7 +190,7 @@ function M.fold_expr()
 end
 
 -- Clear marker cache when buffer changes or buffer is wiped
-vim.api.nvim_create_autocmd({"BufWrite", "TextChanged", "TextChangedI", "BufWipeout"}, {
+vim.api.nvim_create_autocmd({"BufWrite", "BufWipeout"}, {
   callback = function(ev)
     utils.invalidate_marker_cache(ev.buf)
   end
@@ -416,7 +416,7 @@ vim.api.nvim_create_autocmd("FileType", {
   pattern = { "python", "julia" },
   callback = function(args)
     vim.api.nvim_create_autocmd(
-      { "InsertEnter", "InsertLeave", "BufEnter", "TextChanged", "BufWinEnter" },
+      { "InsertEnter", "InsertLeave", "BufEnter", "BufWinEnter" },
       {
         buffer = args.buf,
         callback = function()
