@@ -94,7 +94,7 @@ The plugin automatically sets up these keybindings for Python files:
 
 | Key | Mode | Command | Description |
 |-----|------|---------|-------------|
-| `<leader>jx` | Normal | `:JupyterRunCell` | Execute current cell |
+| `<leader>jx` | Normal | `:JupyterRunCellSmart` | Execute current cell (advance or stay based on flag) |
 | `<leader>jd` | Normal | `:JupyterDebugCell` | Debug current cell in the live kernel |
 | `<leader>jw` | Normal/Visual | `:JupyterDebugWatch` | Add the symbol or selection to the watches pane |
 | `<leader>je` | Normal/Visual | `:JupyterDebugEval` | Evaluate the symbol or selection in a popup |
@@ -107,6 +107,7 @@ The plugin automatically sets up these keybindings for Python files:
 | `<leader>ji` | Normal | `:JupyterInterrupt` | Interrupt execution |
 | `<leader>jo` | Normal | `:JupyterToggleOut` | Toggle output pane |
 | `<leader>jc` | Normal | `:JupyterClearAll` | Clear all virtual text |
+| `<leader>jt` | Normal | `:JupyterRunCellAdvance toggle` | Toggle whether smart run advances to next cell |
 
 ## 🎛️ Commands
 
@@ -139,12 +140,17 @@ The plugin automatically sets up these keybindings for Python files:
 ### Output Management
 - `:JupyterToggleOut` - Toggle the output split pane
 - `:JupyterClearAll` - Clear all virtual text output
+- `:JupyterToggleInlineOutput` - Toggle inline virtual-text output on/off
 
 ### Docs
 - `:JupyterDoc` - Show documentation for the object under cursor (uses Jupyter inspect; tries control channel so it works even while a cell is running)
 
 ### Navigation
 - `:JupyterCellToc[!]` - Populate quickfix with all cell/subcell titles (bang to avoid opening quickfix)
+- `:JupyterGotoRunningCell` - Jump the cursor to the cell that is currently executing
+
+### Utility
+- `:JupyterUpdateSigns` - Recompute gutter sign positions (useful after manually opening/closing folds)
 
 ## ⚙️ Configuration
 
@@ -180,16 +186,21 @@ require("jupyter").setup({
   pager = {
     split = "right",       -- "bottom" or "right" split for pager text
     height = 15,
-    width = 60,
+    width = 30,
     focus_on_open = false,  -- show docs without moving cursor
     filetype = "markdown", -- syntax highlight inside pager split
   },
-  
+
   -- Interrupt behavior
   interrupt = {
     drop_queue = true,        -- drop pending executions on interrupt
-    timeout_ms = 3000,        -- timeout before forcing restart
+    timeout_ms = 1000,        -- ms to wait for kernel to acknowledge interrupt before forcing restart
     restart_on_timeout = true,-- restart kernel if interrupt times out
+  },
+
+  -- Smart-run advance behavior (<leader>jx / :JupyterRunCellSmart)
+  run = {
+    advance_to_next_cell = true, -- true: move cursor to next cell after execution
   },
 
   dap = {
@@ -198,6 +209,32 @@ require("jupyter").setup({
     port = nil,             -- nil = choose a free port inside the kernel
     just_my_code = false,
     open_dapui = true,      -- lazily setup/open dap-ui with a Jupyter-friendly layout
+  },
+
+  -- Cell UI decorations
+  ui = {
+    show_cell_borders = true,    -- virtual lines drawn above/below each cell's content
+    highlight_metadata = true,   -- highlight `#:: metadata ::` comment lines
+    metadata_hl = {              -- colors for metadata virtual text (or a highlight group name)
+      fg = "#88a0f9",
+      bg = "#10101e",
+    },
+  },
+
+  -- Fold behavior
+  fold = {
+    close_cells_on_open = false, -- auto-close all cell folds when opening a Python file
+  },
+
+  -- Inline virtual-text output (shown below the last line of the current cell)
+  inline = {
+    enabled   = false,           -- opt-in; toggle at runtime with :JupyterToggleInlineOutput
+    max_lines = 20,              -- max output lines shown inline; first N lines kept, remainder summarized
+    maxlen    = 300,             -- max characters per line before truncation
+    strip_ansi = true,           -- strip ANSI escape codes before display
+    prefix    = " ⟶ ",          -- prefix for the first output line
+    hl_normal = "MoltenOutputWin", -- highlight group for normal output
+    hl_error  = "DiagnosticError", -- highlight group for error output
   },
 })
 ```
@@ -263,10 +300,15 @@ The plugin recognizes Jupyter-style cell markers:
 ## 🔍 Output Display
 
 ### Inline Virtual Text
-- **Success**: Shows `✓` sign and result preview
-- **Error**: Shows `✗` sign and error message
-- **Running**: Shows `▶` sign and "running..." indicator
-- **Results**: Truncated output appears as virtual text
+
+Inline output is **cursor-aware**: it appears only for the cell the cursor is currently in, and disappears when the cursor moves to a different cell. This keeps the buffer uncluttered while still giving immediate access to the output of whichever cell you are editing.
+
+- **Running**: Animated spinner sign in the gutter while the cell executes
+- **Success**: `✓` gutter sign on completion
+- **Error**: `✗` gutter sign and the error message shown inline (e.g. `TypeError: …`)
+- **Output lines**: All non-empty output lines are shown as virtual lines below the cell's last code line, each prefixed with ` ⟶ `. Lines beyond `max_lines` are summarized as `… (N more lines)`.
+
+Enable inline output via `:JupyterToggleInlineOutput` or by setting `inline.enabled = true` in the configuration. The `max_lines` limit (default 20) prevents very large outputs from cluttering the buffer; use the split-pane output buffer for full results.
 
 ### Split Pane Output
 - **Detailed Output**: Full results, including rich content
