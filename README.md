@@ -274,15 +274,11 @@ The plugin automatically detects your Python environment:
 The plugin recognizes Jupyter-style cell markers:
 
 ```python
-#%%
-# This is a cell
+#%% cell title
+print("This is a cell")
 
-# %% This is also valid
-
-  #   %%   With spaces too
-
-#%% You can add titles
-# This is the cell content
+##%% subcell title
+print("This is a sub-cell")
 ```
 
 **Cell Behavior:**
@@ -414,3 +410,4 @@ This plugin is provided as-is for personal use.
 # Known Issues
 
 - [ ] Multiple buffers with each their own kernel is not supported - currently, all buffers send the code to a single kernel, which means that they share variables (not ideal, I know).
+    - Workaround: tmux panes/sessions
