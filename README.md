@@ -310,6 +310,8 @@ Inline output is **cursor-aware**: it appears only for the cell the cursor is cu
 
 Enable inline output via `:JupyterToggleInlineOutput` or by setting `inline.enabled = true` in the configuration. The `max_lines` limit (default 20) prevents very large outputs from cluttering the buffer; use the split-pane output buffer for full results.
 
+NOTE: Inline output is best for quick feedback on small results or error messages. For larger outputs, rich content, or when you want to preserve ANSI colors, the split pane output is recommended.
+
 ### Split Pane Output
 - **Detailed Output**: Full results, including rich content
 - **ANSI Colors**: Preserved for proper syntax highlighting
