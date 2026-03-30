@@ -1,7 +1,7 @@
 ---@diagnostic disable: undefined-global, undefined-field
 
 local api = vim.api
-local utils = require "jupyter.utils"
+local utils = require("jupyter.utils")
 
 local M = {}
 local GROUP = "nvim-jupyter"
@@ -11,280 +11,349 @@ local ns_exec = vim.api.nvim_create_namespace("jupyter_exec")
 M.ns = ns
 
 local function highlight_is_defined(name)
-  if not name or name == "" then return false end
-  local ok, hl = pcall(api.nvim_get_hl, 0, { name = name, link = false })
-  if ok and hl and next(hl) ~= nil then
-    return true
-  end
-  return vim.fn.hlexists(name) == 1
+	if not name or name == "" then
+		return false
+	end
+	local ok, hl = pcall(api.nvim_get_hl, 0, { name = name, link = false })
+	if ok and hl and next(hl) ~= nil then
+		return true
+	end
+	return vim.fn.hlexists(name) == 1
 end
 
 local CELL_HL_DEFAULTS = {
-  { name = "CellLineBackground", link = "StatusLine" },
-  { name = "CellLineBG" },
-  { name = "CellLineFG",         link = "Normal" },
-  { name = "JupyterOutput",         link = "NormalNC" },
-  { name = "CellLineSubBackground", link = "StatusLineNC" },
-  { name = "CellLineSubBG" },
+	{ name = "CellLineBackground", link = "StatusLine" },
+	{ name = "CellLineBG" },
+	{ name = "CellLineFG", link = "Normal" },
+	{ name = "JupyterOutput", link = "NormalNC" },
+	{ name = "CellLineSubBackground", link = "StatusLineNC" },
+	{ name = "CellLineSubBG" },
 }
 
 local function define_cell_highlights()
-  for _, def in ipairs(CELL_HL_DEFAULTS) do
-    if def.name == "CellLineBG" then
-      -- Special case: set fg to bg of Folded (cell background)
-      local clb_hl = vim.api.nvim_get_hl(0, { name = "StatusLine", link = false })
-      local bg_color = clb_hl and clb_hl.bg
-      if bg_color then
-        api.nvim_set_hl(0, def.name, { fg = bg_color, default = true })
-      else
-        api.nvim_set_hl(0, def.name, { link = "Comment", default = true })
-      end
-    elseif def.name and def.link then
-      api.nvim_set_hl(0, def.name, { link = def.link, default = true })
-    end
-    if def.name == "CellLineSubBG" then
-      -- Special case: set fg to bg of Folded (cell background)
-      local clb_hl = vim.api.nvim_get_hl(0, { name = "StatusLineNC", link = false })
-      local bg_color = clb_hl and clb_hl.bg
-      if bg_color then
-        api.nvim_set_hl(0, def.name, { fg = bg_color, default = true })
-      end
-    elseif def.name and def.link then
-      api.nvim_set_hl(0, def.name, { link = def.link, default = true })
-    end
-  end
+	for _, def in ipairs(CELL_HL_DEFAULTS) do
+		if def.name == "CellLineBG" then
+			-- Special case: set fg to bg of Folded (cell background)
+			local clb_hl = vim.api.nvim_get_hl(0, { name = "StatusLine", link = false })
+			local bg_color = clb_hl and clb_hl.bg
+			if bg_color then
+				api.nvim_set_hl(0, def.name, { fg = bg_color, default = true })
+			else
+				api.nvim_set_hl(0, def.name, { link = "Comment", default = true })
+			end
+		elseif def.name and def.link then
+			api.nvim_set_hl(0, def.name, { link = def.link, default = true })
+		end
+		if def.name == "CellLineSubBG" then
+			-- Special case: set fg to bg of Folded (cell background)
+			local clb_hl = vim.api.nvim_get_hl(0, { name = "StatusLineNC", link = false })
+			local bg_color = clb_hl and clb_hl.bg
+			if bg_color then
+				api.nvim_set_hl(0, def.name, { fg = bg_color, default = true })
+			end
+		elseif def.name and def.link then
+			api.nvim_set_hl(0, def.name, { link = def.link, default = true })
+		end
+	end
 end
 
 define_cell_highlights()
 api.nvim_create_autocmd("ColorScheme", {
-  callback = define_cell_highlights,
+	callback = define_cell_highlights,
 })
 
 -- Per-buffer state
-local inline_mark = {}        -- [bufnr][row] = extmark_id
-local row_state   = {}        -- [bufnr][row] = { saw_cr = bool }
-local inline_data = {}        -- [bufnr][row] = { text = string, is_err = bool }
-M._row_state = row_state      -- expose for finish_row()
+local inline_mark = {} -- [bufnr][row] = extmark_id
+local row_state = {} -- [bufnr][row] = { saw_cr = bool }
+local inline_data = {} -- [bufnr][row] = { text = string, is_err = bool }
+M._row_state = row_state -- expose for finish_row()
 
 local function get_row_state(bufnr, row)
-  local sb = row_state[bufnr]; if not sb then sb = {}; row_state[bufnr] = sb end
-  local rs = sb[row]; if not rs then rs = { saw_cr = false }; sb[row] = rs end
-  return rs
+	local sb = row_state[bufnr]
+	if not sb then
+		sb = {}
+		row_state[bufnr] = sb
+	end
+	local rs = sb[row]
+	if not rs then
+		rs = { saw_cr = false }
+		sb[row] = rs
+	end
+	return rs
 end
 
 local function get_cfg()
-  local inline = {
-    enabled    = true,
-    strip_ansi = true,
-    maxlen     = 300,
-    max_lines  = 20,
-    prefix     = " ⟶ ",
-    hl_normal  = "MoltenOutputWin",
-    hl_error   = "DiagnosticError",
-  }
-  local ok, cfg = pcall(require, "jupyter.config")
-  if ok and type(cfg) == "table" and type(cfg.inline) == "table" then
-    for k, v in pairs(cfg.inline) do inline[k] = v end
-  end
-  return { inline = inline }
+	local inline = {
+		enabled = true,
+		strip_ansi = true,
+		maxlen = 300,
+		max_lines = 20,
+		prefix = " ⟶ ",
+		hl_normal = "MoltenOutputWin",
+		hl_error = "DiagnosticError",
+	}
+	local ok, cfg = pcall(require, "jupyter.config")
+	if ok and type(cfg) == "table" and type(cfg.inline) == "table" then
+		for k, v in pairs(cfg.inline) do
+			inline[k] = v
+		end
+	end
+	return { inline = inline }
 end
 
 -- ANSI
 local ANSI_CSI = "\27%[[0-?]*[ -/]*[@-~]"
 
 local function clear_inline_mark(bufnr, row)
-  local bm = inline_mark[bufnr]
-  if bm and bm[row] then
-    pcall(api.nvim_buf_del_extmark, bufnr, ns, bm[row]); bm[row] = nil
-  else
-    local marks = api.nvim_buf_get_extmarks(bufnr, ns, { row, 0 }, { row, 0 }, { details = false })
-    for _, mk in ipairs(marks) do api.nvim_buf_del_extmark(bufnr, ns, mk[1]) end
-  end
-  if row_state[bufnr] then row_state[bufnr][row] = nil end
+	local bm = inline_mark[bufnr]
+	if bm and bm[row] then
+		pcall(api.nvim_buf_del_extmark, bufnr, ns, bm[row])
+		bm[row] = nil
+	else
+		local marks = api.nvim_buf_get_extmarks(bufnr, ns, { row, 0 }, { row, 0 }, { details = false })
+		for _, mk in ipairs(marks) do
+			api.nvim_buf_del_extmark(bufnr, ns, mk[1])
+		end
+	end
+	if row_state[bufnr] then
+		row_state[bufnr][row] = nil
+	end
 end
 
 -- Returns 0-based (cell_start, cell_end) for the cell that contains cursor_line, or nil
 local function get_cursor_cell_range(bufnr, cursor_line)
-  local state = utils.get_marker_state(bufnr)
-  local marker_rows = state and state.order or {}
-  if #marker_rows == 0 then return nil end
+	local state = utils.get_marker_state(bufnr)
+	local marker_rows = state and state.order or {}
+	if #marker_rows == 0 then
+		return nil
+	end
 
-  local cell_start = nil
-  local next_cell_start = nil
-  for i, mr in ipairs(marker_rows) do
-    if mr <= cursor_line then
-      cell_start = mr
-      next_cell_start = marker_rows[i + 1]
-    else
-      break
-    end
-  end
+	local cell_start = nil
+	local next_cell_start = nil
+	for i, mr in ipairs(marker_rows) do
+		if mr <= cursor_line then
+			cell_start = mr
+			next_cell_start = marker_rows[i + 1]
+		else
+			break
+		end
+	end
 
-  if cell_start == nil then return nil end
-  local line_count = vim.api.nvim_buf_line_count(bufnr)
-  local cell_end = next_cell_start and (next_cell_start - 1) or math.max(line_count - 1, 0)
-  return cell_start, cell_end
+	if cell_start == nil then
+		return nil
+	end
+	local line_count = vim.api.nvim_buf_line_count(bufnr)
+	local cell_end = next_cell_start and (next_cell_start - 1) or math.max(line_count - 1, 0)
+	return cell_start, cell_end
 end
 
 -- Returns a list of non-empty display lines from raw output text
 local function format_output_lines(text, cfg)
-  local raw = tostring(text or "")
-  if cfg.strip_ansi then raw = raw:gsub(ANSI_CSI, "") end
-  local lines = {}
-  for line in (raw .. "\n"):gmatch("([^\n]*)\n") do
-    line = (line:match("[^\r]*$") or line):gsub("%s+$", "")
-    if line ~= "" then lines[#lines + 1] = line end
-  end
-  return lines
+	local raw = tostring(text or "")
+	if cfg.strip_ansi then
+		raw = raw:gsub(ANSI_CSI, "")
+	end
+	local lines = {}
+	for line in (raw .. "\n"):gmatch("([^\n]*)\n") do
+		line = (line:match("[^\r]*$") or line):gsub("%s+$", "")
+		if line ~= "" then
+			lines[#lines + 1] = line
+		end
+	end
+	return lines
 end
 
 -- Render full multi-line output as virt_lines for an (bufnr, row) entry in inline_data
 local function render_inline_mark(bufnr, row)
-  local bd = inline_data[bufnr]
-  if not bd or not bd[row] then return end
-  local data = bd[row]
-  local cfg = get_cfg().inline
-  local is_err = data.is_err
-  local hl = is_err and (cfg.hl_error or "DiagnosticError") or (cfg.hl_normal or "Comment")
-  if type(hl) ~= "string" or hl == "" then hl = "Comment" end
+	local bd = inline_data[bufnr]
+	if not bd or not bd[row] then
+		return
+	end
+	local data = bd[row]
+	local cfg = get_cfg().inline
+	local is_err = data.is_err
+	local hl = is_err and (cfg.hl_error or "DiagnosticError") or (cfg.hl_normal or "Comment")
+	if type(hl) ~= "string" or hl == "" then
+		hl = "Comment"
+	end
 
-  local lines = format_output_lines(data.text, cfg)
-  if #lines == 0 then lines = { "Done!" } end
+	local lines = format_output_lines(data.text, cfg)
+	if #lines == 0 then
+		lines = { "Done!" }
+	end
 
-  local max_lines = tonumber(cfg.max_lines) or 20
-  if max_lines > 0 and #lines > max_lines then
-    local kept = {}
-    for i = 1, max_lines do kept[i] = lines[i] end
-    kept[#kept + 1] = "… (" .. (#lines - max_lines) .. " more lines)"
-    lines = kept
-  end
+	local max_lines = tonumber(cfg.max_lines) or 20
+	if max_lines > 0 and #lines > max_lines then
+		local kept = {}
+		for i = 1, max_lines do
+			kept[i] = lines[i]
+		end
+		kept[#kept + 1] = "… (" .. (#lines - max_lines) .. " more lines)"
+		lines = kept
+	end
 
-  local prefix = cfg.prefix or " ⟶ "
-  local indent = string.rep(" ", vim.fn.strdisplaywidth(prefix))
-  local virt_lines = {}
-  for i, line in ipairs(lines) do
-    virt_lines[#virt_lines + 1] = { { (i == 1 and prefix or indent) .. line, hl } }
-  end
+	local prefix = cfg.prefix or " ⟶ "
+	local indent = string.rep(" ", vim.fn.strdisplaywidth(prefix))
+	local virt_lines = {}
+	for i, line in ipairs(lines) do
+		virt_lines[#virt_lines + 1] = { { (i == 1 and prefix or indent) .. line, hl } }
+	end
 
-  clear_inline_mark(bufnr, row)
+	clear_inline_mark(bufnr, row)
 
-  local id
-  if vim.fn.has("nvim-0.9") == 1 then
-    id = api.nvim_buf_set_extmark(bufnr, M.ns, row, 0, {
-      virt_lines = virt_lines,
-      virt_lines_above = false,
-      hl_mode = "combine",
-      priority = 200,
-    })
-  else
-    id = api.nvim_buf_set_extmark(bufnr, M.ns, row, -1, {
-      virt_text = { { prefix .. lines[1], hl } },
-      virt_text_pos = "eol",
-      hl_mode = "combine",
-    })
-  end
+	local id
+	if vim.fn.has("nvim-0.9") == 1 then
+		id = api.nvim_buf_set_extmark(bufnr, M.ns, row, 0, {
+			virt_lines = virt_lines,
+			virt_lines_above = false,
+			hl_mode = "combine",
+			priority = 200,
+		})
+	else
+		id = api.nvim_buf_set_extmark(bufnr, M.ns, row, -1, {
+			virt_text = { { prefix .. lines[1], hl } },
+			virt_text_pos = "eol",
+			hl_mode = "combine",
+		})
+	end
 
-  inline_mark[bufnr] = inline_mark[bufnr] or {}
-  inline_mark[bufnr][row] = id
+	inline_mark[bufnr] = inline_mark[bufnr] or {}
+	inline_mark[bufnr][row] = id
 end
 
 -- Backward-compatible: ui.clear_row(row) or ui.clear_row(bufnr, row)
 function M.clear_row(a, b)
-  local bufnr, row
-  if b == nil and type(a) == "number" then bufnr, row = api.nvim_get_current_buf(), a else bufnr, row = a, b end
-  if not (bufnr and api.nvim_buf_is_valid(bufnr)) then return end
-  clear_inline_mark(bufnr, row)
-  if inline_data[bufnr] then inline_data[bufnr][row] = nil end
+	local bufnr, row
+	if b == nil and type(a) == "number" then
+		bufnr, row = api.nvim_get_current_buf(), a
+	else
+		bufnr, row = a, b
+	end
+	if not (bufnr and api.nvim_buf_is_valid(bufnr)) then
+		return
+	end
+	clear_inline_mark(bufnr, row)
+	if inline_data[bufnr] then
+		inline_data[bufnr][row] = nil
+	end
 end
 
 function M.clear_all(bufnr)
-  if bufnr and api.nvim_buf_is_valid(bufnr) then
-    api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
-    inline_mark[bufnr] = {}
-    row_state[bufnr]   = {}
-    inline_data[bufnr] = {}
-  end
+	if bufnr and api.nvim_buf_is_valid(bufnr) then
+		api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+		inline_mark[bufnr] = {}
+		row_state[bufnr] = {}
+		inline_data[bufnr] = {}
+	end
 end
 
 -- Store output for (bufnr, row) and render it if the cursor is currently in that cell.
 function M.show_inline(bufnr, row, text, opts)
-  if not (bufnr and api.nvim_buf_is_valid(bufnr)) then return end
-  local cfg = get_cfg().inline
-  if cfg.enabled == false then return end
+	if not (bufnr and api.nvim_buf_is_valid(bufnr)) then
+		return
+	end
+	local cfg = get_cfg().inline
+	if cfg.enabled == false then
+		return
+	end
 
-  -- Track CR-style progress markers
-  local has_cr = tostring(text or ""):find("\r", 1, true) ~= nil
-  local st = get_row_state(bufnr, row)
-  if has_cr then st.saw_cr = true end
+	-- Track CR-style progress markers
+	local has_cr = tostring(text or ""):find("\r", 1, true) ~= nil
+	local st = get_row_state(bufnr, row)
+	if has_cr then
+		st.saw_cr = true
+	end
 
-  -- Persist the data
-  inline_data[bufnr] = inline_data[bufnr] or {}
-  inline_data[bufnr][row] = { text = text, is_err = opts and opts.error or false }
+	-- Persist the data
+	inline_data[bufnr] = inline_data[bufnr] or {}
+	inline_data[bufnr][row] = { text = text, is_err = opts and opts.error or false }
 
-  -- Only render when cursor is inside this cell
-  local wins = vim.fn.win_findbuf(bufnr)
-  local cursor_line
-  for _, win in ipairs(wins) do
-    if api.nvim_win_is_valid(win) then
-      cursor_line = api.nvim_win_get_cursor(win)[1] - 1
-      break
-    end
-  end
-  if cursor_line == nil then return end
+	-- Only render when cursor is inside this cell
+	local wins = vim.fn.win_findbuf(bufnr)
+	local cursor_line
+	for _, win in ipairs(wins) do
+		if api.nvim_win_is_valid(win) then
+			cursor_line = api.nvim_win_get_cursor(win)[1] - 1
+			break
+		end
+	end
+	if cursor_line == nil then
+		return
+	end
 
-  local s, e = get_cursor_cell_range(bufnr, cursor_line)
-  if s and e and row >= s and row <= e then
-    render_inline_mark(bufnr, row)
-  end
+	local s, e = get_cursor_cell_range(bufnr, cursor_line)
+	if s and e and row >= s and row <= e then
+		render_inline_mark(bufnr, row)
+	end
 end
 
 -- Clear inline on completion only if we saw a progress-style CR
 function M.finish_row(a, b)
-  local bufnr, row
-  if b == nil and type(a) == "number" then bufnr, row = api.nvim_get_current_buf(), a else bufnr, row = a, b end
-  if not (bufnr and api.nvim_buf_is_valid(bufnr)) then return end
-  local sb = row_state[bufnr]
-  local st = sb and sb[row]
-  if st and st.saw_cr then
-    if inline_data[bufnr] then inline_data[bufnr][row] = nil end
-    clear_inline_mark(bufnr, row)
-  end
-  if st then st.saw_cr = false end
+	local bufnr, row
+	if b == nil and type(a) == "number" then
+		bufnr, row = api.nvim_get_current_buf(), a
+	else
+		bufnr, row = a, b
+	end
+	if not (bufnr and api.nvim_buf_is_valid(bufnr)) then
+		return
+	end
+	local sb = row_state[bufnr]
+	local st = sb and sb[row]
+	if st and st.saw_cr then
+		if inline_data[bufnr] then
+			inline_data[bufnr][row] = nil
+		end
+		clear_inline_mark(bufnr, row)
+	end
+	if st then
+		st.saw_cr = false
+	end
 end
 
 -- Refresh inline marks based on cursor position. Called from highlight_cells() on cursor move.
 function M.refresh_inline(bufnr, cursor_line)
-  if not (bufnr and api.nvim_buf_is_valid(bufnr)) then return end
+	if not (bufnr and api.nvim_buf_is_valid(bufnr)) then
+		return
+	end
 
-  -- Clear all existing inline marks for this buffer
-  api.nvim_buf_clear_namespace(bufnr, M.ns, 0, -1)
-  inline_mark[bufnr] = {}
+	-- Clear all existing inline marks for this buffer
+	api.nvim_buf_clear_namespace(bufnr, M.ns, 0, -1)
+	inline_mark[bufnr] = {}
 
-  local cfg = get_cfg().inline
-  if cfg.enabled == false then return end
+	local cfg = get_cfg().inline
+	if cfg.enabled == false then
+		return
+	end
 
-  local bd = inline_data[bufnr]
-  if not bd or not next(bd) then return end
+	local bd = inline_data[bufnr]
+	if not bd or not next(bd) then
+		return
+	end
 
-  if cursor_line == nil then
-    local wins = vim.fn.win_findbuf(bufnr)
-    for _, win in ipairs(wins) do
-      if api.nvim_win_is_valid(win) then
-        cursor_line = api.nvim_win_get_cursor(win)[1] - 1
-        break
-      end
-    end
-  end
-  if cursor_line == nil then return end
+	if cursor_line == nil then
+		local wins = vim.fn.win_findbuf(bufnr)
+		for _, win in ipairs(wins) do
+			if api.nvim_win_is_valid(win) then
+				cursor_line = api.nvim_win_get_cursor(win)[1] - 1
+				break
+			end
+		end
+	end
+	if cursor_line == nil then
+		return
+	end
 
-  local s, e = get_cursor_cell_range(bufnr, cursor_line)
-  if not s then return end
+	local s, e = get_cursor_cell_range(bufnr, cursor_line)
+	if not s then
+		return
+	end
 
-  for row, _ in pairs(bd) do
-    if row >= s and row <= e then
-      render_inline_mark(bufnr, row)
-    end
-  end
+	for row, _ in pairs(bd) do
+		if row >= s and row <= e then
+			render_inline_mark(bufnr, row)
+		end
+	end
 end
 
 -- Signs -----------------------------------------------------------------------
@@ -298,293 +367,348 @@ local anim_idx = 1
 -- local SPINNER_FRAMES = { "⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷" }
 -- local SPINNER_FRAMES = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 -- local SPINNER_FRAMES = { '.', 'o', 'O', 'o' }
-local SPINNER_FRAMES= { "|", "/", "-", "\\" }
+local SPINNER_FRAMES = { "|", "/", "-", "\\" }
 -- local SPINNER_FRAMES = {"󱑖", "󱑋", "󱑌", "󱑍", "󱑎", "󱑏", "󱑐", "󱑑", "󱑒", "󱑓", "󱑔", "󱑕"}
 -- local SPINNER_FRAMES = {"▉","▊","▋","▌","▍","▎","▏","▎","▍","▌","▋","▊","▉"}
 
 local function stop_anim()
-  if anim_timer then
-    if not anim_timer:is_closing() then anim_timer:stop(); anim_timer:close() end
-    anim_timer = nil
-  end
+	if anim_timer then
+		if not anim_timer:is_closing() then
+			anim_timer:stop()
+			anim_timer:close()
+		end
+		anim_timer = nil
+	end
 end
 
 local function has_any_running_sign()
-  for _, buf_signs in pairs(sign_marks) do
-    for _, info in pairs(buf_signs) do
-      if info.kind == "run" then return true end
-    end
-  end
-  return false
+	for _, buf_signs in pairs(sign_marks) do
+		for _, info in pairs(buf_signs) do
+			if info.kind == "run" then
+				return true
+			end
+		end
+	end
+	return false
 end
 
 local function step_anim()
-  if not has_any_running_sign() then
-    stop_anim()
-    return
-  end
-  anim_idx = (anim_idx % #SPINNER_FRAMES) + 1
-  local symbol = SPINNER_FRAMES[anim_idx]
+	if not has_any_running_sign() then
+		stop_anim()
+		return
+	end
+	anim_idx = (anim_idx % #SPINNER_FRAMES) + 1
+	local symbol = SPINNER_FRAMES[anim_idx]
 
-  for bufnr, buf_signs in pairs(sign_marks) do
-    if api.nvim_buf_is_valid(bufnr) then
-      for _, info in pairs(buf_signs) do
-        if info.kind == "run" and info.mark_id then
-           local mark = api.nvim_buf_get_extmark_by_id(bufnr, ns_exec, info.mark_id, { details = false })
-           if mark and #mark > 0 then
-             api.nvim_buf_set_extmark(bufnr, ns_exec, mark[1], 0, {
-               id = info.mark_id,
-               sign_text = symbol,
-               sign_hl_group = "JupyterRunning",
-               priority = 10,
-             })
-           end
-        end
-      end
-    end
-  end
+	for bufnr, buf_signs in pairs(sign_marks) do
+		if api.nvim_buf_is_valid(bufnr) then
+			for _, info in pairs(buf_signs) do
+				if info.kind == "run" and info.mark_id then
+					local mark = api.nvim_buf_get_extmark_by_id(bufnr, ns_exec, info.mark_id, { details = false })
+					if mark and #mark > 0 then
+						api.nvim_buf_set_extmark(bufnr, ns_exec, mark[1], 0, {
+							id = info.mark_id,
+							sign_text = symbol,
+							sign_hl_group = "JupyterRunning",
+							priority = 10,
+						})
+					end
+				end
+			end
+		end
+	end
 end
 
 local function start_anim()
-  if anim_timer then return end
-  anim_timer = vim.loop.new_timer()
-  anim_timer:start(0, 100, vim.schedule_wrap(step_anim))
+	if anim_timer then
+		return
+	end
+	anim_timer = vim.loop.new_timer()
+	anim_timer:start(0, 100, vim.schedule_wrap(step_anim))
 end
 
 local function get_sign_appearance(kind)
-  if kind == "run" then
+	if kind == "run" then
 		return SPINNER_FRAMES[1], "JupyterRunning"
-  elseif kind == "ok" then
-    return "✓", "DiagnosticOk"
-  else  -- "err"
-    return "×", "DiagnosticError"
-  end
+	elseif kind == "ok" then
+		return "✓", "DiagnosticOk"
+	else -- "err"
+		return "×", "DiagnosticError"
+	end
 end
 
 local function determine_sign_row(bufnr, original_row)
-  -- If the target row is inside a fold, place sign on the fold start line (#%% marker)
-  -- Otherwise, place on the original row
+	-- If the target row is inside a fold, place sign on the fold start line (#%% marker)
+	-- Otherwise, place on the original row
 
-  -- We need to check from the context of a window displaying this buffer
-  local wins = vim.fn.win_findbuf(bufnr)
-  if #wins > 0 then
-    local saved_win = api.nvim_get_current_win()
-    local target_win = wins[1]
+	-- We need to check from the context of a window displaying this buffer
+	local wins = vim.fn.win_findbuf(bufnr)
+	if #wins > 0 then
+		local saved_win = api.nvim_get_current_win()
+		local target_win = wins[1]
 
-    -- Temporarily switch to the window to check fold state
-    local ok = pcall(api.nvim_set_current_win, target_win)
-    if ok then
-      local fold_start = vim.fn.foldclosed(original_row + 1)  -- foldclosed uses 1-based line numbers
-      pcall(api.nvim_set_current_win, saved_win)
+		-- Temporarily switch to the window to check fold state
+		local ok = pcall(api.nvim_set_current_win, target_win)
+		if ok then
+			local fold_start = vim.fn.foldclosed(original_row + 1) -- foldclosed uses 1-based line numbers
+			pcall(api.nvim_set_current_win, saved_win)
 
-      if fold_start ~= -1 then
-        return fold_start - 1  -- Convert back to 0-based (place on #%% line)
-      end
-    end
-  end
-  return original_row  -- Place on actual execution line when unfolded
+			if fold_start ~= -1 then
+				return fold_start - 1 -- Convert back to 0-based (place on #%% line)
+			end
+		end
+	end
+	return original_row -- Place on actual execution line when unfolded
 end
 
 function M.place_sign(kind, bufnr, row)
-  if not (bufnr and api.nvim_buf_is_valid(bufnr)) then return end
+	if not (bufnr and api.nvim_buf_is_valid(bufnr)) then
+		return
+	end
 
-  local sign_text, sign_hl = get_sign_appearance(kind)
-  local sign_row = determine_sign_row(bufnr, row)
+	local sign_text, sign_hl = get_sign_appearance(kind)
+	local sign_row = determine_sign_row(bufnr, row)
 
-  -- Remove any existing sign at this original row
-  if not sign_marks[bufnr] then sign_marks[bufnr] = {} end
-  if sign_marks[bufnr][row] and sign_marks[bufnr][row].mark_id then
-    pcall(api.nvim_buf_del_extmark, bufnr, ns_exec, sign_marks[bufnr][row].mark_id)
-  end
+	-- Remove any existing sign at this original row
+	if not sign_marks[bufnr] then
+		sign_marks[bufnr] = {}
+	end
+	if sign_marks[bufnr][row] and sign_marks[bufnr][row].mark_id then
+		pcall(api.nvim_buf_del_extmark, bufnr, ns_exec, sign_marks[bufnr][row].mark_id)
+	end
 
-  -- Place new sign using extmark
-  local ok, mark_id = pcall(api.nvim_buf_set_extmark, bufnr, ns_exec, sign_row, 0, {
-    sign_text = sign_text,
-    sign_hl_group = sign_hl,
-    priority = 10,
-  })
+	-- Place new sign using extmark
+	local ok, mark_id = pcall(api.nvim_buf_set_extmark, bufnr, ns_exec, sign_row, 0, {
+		sign_text = sign_text,
+		sign_hl_group = sign_hl,
+		priority = 10,
+	})
 
-  if ok then
-    sign_marks[bufnr][row] = { kind = kind, mark_id = mark_id }
-    if kind == "run" then start_anim() end
-  end
+	if ok then
+		sign_marks[bufnr][row] = { kind = kind, mark_id = mark_id }
+		if kind == "run" then
+			start_anim()
+		end
+	end
 end
 
 -- Update all sign positions based on current fold state
 function M.update_sign_positions(bufnr)
-  if not (bufnr and api.nvim_buf_is_valid(bufnr)) then return end
-  if not sign_marks[bufnr] then return end
+	if not (bufnr and api.nvim_buf_is_valid(bufnr)) then
+		return
+	end
+	if not sign_marks[bufnr] then
+		return
+	end
 
-  for original_row, info in pairs(sign_marks[bufnr]) do
-    if info.kind and info.mark_id then
-      local sign_text, sign_hl = get_sign_appearance(info.kind)
-      local new_sign_row = determine_sign_row(bufnr, original_row)
+	for original_row, info in pairs(sign_marks[bufnr]) do
+		if info.kind and info.mark_id then
+			local sign_text, sign_hl = get_sign_appearance(info.kind)
+			local new_sign_row = determine_sign_row(bufnr, original_row)
 
-      -- Update the extmark position
-      pcall(api.nvim_buf_del_extmark, bufnr, ns_exec, info.mark_id)
-      local ok, mark_id = pcall(api.nvim_buf_set_extmark, bufnr, ns_exec, new_sign_row, 0, {
-        sign_text = sign_text,
-        sign_hl_group = sign_hl,
-        priority = 10,
-      })
+			-- Update the extmark position
+			pcall(api.nvim_buf_del_extmark, bufnr, ns_exec, info.mark_id)
+			local ok, mark_id = pcall(api.nvim_buf_set_extmark, bufnr, ns_exec, new_sign_row, 0, {
+				sign_text = sign_text,
+				sign_hl_group = sign_hl,
+				priority = 10,
+			})
 
-      if ok then
-        sign_marks[bufnr][original_row].mark_id = mark_id
-      end
-    end
-  end
+			if ok then
+				sign_marks[bufnr][original_row].mark_id = mark_id
+			end
+		end
+	end
 end
 
 function M.clear_signs(bufnr)
-  -- Clear extmark-based signs
-  if sign_marks[bufnr] then
-    for row, info in pairs(sign_marks[bufnr]) do
-      if info.mark_id then
-        pcall(api.nvim_buf_del_extmark, bufnr, ns_exec, info.mark_id)
-      end
-    end
-    sign_marks[bufnr] = {}
-  end
+	-- Clear extmark-based signs
+	if sign_marks[bufnr] then
+		for row, info in pairs(sign_marks[bufnr]) do
+			if info.mark_id then
+				pcall(api.nvim_buf_del_extmark, bufnr, ns_exec, info.mark_id)
+			end
+		end
+		sign_marks[bufnr] = {}
+	end
 
-  -- Also clear any old-style signs (for backwards compatibility)
-  pcall(vim.fn.sign_unplace, GROUP, { buffer = bufnr })
-  vim.diagnostic.reset(ns_exec, bufnr)
+	-- Also clear any old-style signs (for backwards compatibility)
+	pcall(vim.fn.sign_unplace, GROUP, { buffer = bufnr })
+	vim.diagnostic.reset(ns_exec, bufnr)
 end
 
 -- Clear every pending sign/diagnostic entry created by this plugin
 function M.clear_all_signs()
-  local cleared = {}
-  for bufnr, _ in pairs(sign_marks) do
-    if api.nvim_buf_is_valid(bufnr) then
-      M.clear_signs(bufnr)
-      cleared[bufnr] = true
-    else
-      sign_marks[bufnr] = nil
-    end
-  end
+	local cleared = {}
+	for bufnr, _ in pairs(sign_marks) do
+		if api.nvim_buf_is_valid(bufnr) then
+			M.clear_signs(bufnr)
+			cleared[bufnr] = true
+		else
+			sign_marks[bufnr] = nil
+		end
+	end
 
-  -- Some buffers may only carry diagnostics (for example after clear_signs_range);
-  -- ensure those are wiped as well.
-  for _, bufnr in ipairs(api.nvim_list_bufs()) do
-    if not cleared[bufnr] and api.nvim_buf_is_valid(bufnr) then
-      vim.diagnostic.reset(ns_exec, bufnr)
-    end
-  end
+	-- Some buffers may only carry diagnostics (for example after clear_signs_range);
+	-- ensure those are wiped as well.
+	for _, bufnr in ipairs(api.nvim_list_bufs()) do
+		if not cleared[bufnr] and api.nvim_buf_is_valid(bufnr) then
+			vim.diagnostic.reset(ns_exec, bufnr)
+		end
+	end
 end
 
 local function remove_diagnostics_in_range(bufnr, srow, erow)
-  if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then return end
-  srow = srow or 0
-  erow = erow or vim.api.nvim_buf_line_count(bufnr)
-  if erow < srow then srow, erow = erow, srow end
+	if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then
+		return
+	end
+	srow = srow or 0
+	erow = erow or vim.api.nvim_buf_line_count(bufnr)
+	if erow < srow then
+		srow, erow = erow, srow
+	end
 
-  local existing = vim.diagnostic.get(bufnr, { namespace = ns_exec })
-  if not existing or vim.tbl_isempty(existing) then return end
+	local existing = vim.diagnostic.get(bufnr, { namespace = ns_exec })
+	if not existing or vim.tbl_isempty(existing) then
+		return
+	end
 
-  local keep = {}
-  local changed = false
-  for _, diagnostic in ipairs(existing) do
-    local lnum = diagnostic.lnum or 0
-    if lnum >= srow and lnum <= erow then
-      changed = true
-    else
-      keep[#keep + 1] = diagnostic
-    end
-  end
+	local keep = {}
+	local changed = false
+	for _, diagnostic in ipairs(existing) do
+		local lnum = diagnostic.lnum or 0
+		if lnum >= srow and lnum <= erow then
+			changed = true
+		else
+			keep[#keep + 1] = diagnostic
+		end
+	end
 
-  if not changed then return end
-  if #keep == 0 then
-    vim.diagnostic.reset(ns_exec, bufnr)
-  else
-    vim.diagnostic.set(ns_exec, bufnr, keep)
-  end
+	if not changed then
+		return
+	end
+	if #keep == 0 then
+		vim.diagnostic.reset(ns_exec, bufnr)
+	else
+		vim.diagnostic.set(ns_exec, bufnr, keep)
+	end
 end
 
 function M.clear_diagnostics_range(bufnr, srow, erow)
-  remove_diagnostics_in_range(bufnr, srow, erow)
+	remove_diagnostics_in_range(bufnr, srow, erow)
 end
 
 -- Clear inline virtual text (our namespace) for a row range [srow, erow]
 function M.clear_range(bufnr, srow, erow)
-  if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then return end
-  if not (srow and erow) then return end
-  if erow < srow then srow, erow = erow, srow end
-  -- wipe extmarks in range for our namespace only
-  vim.api.nvim_buf_clear_namespace(bufnr, M.ns, srow, erow + 1)
-  -- drop cached per-row state in that range
-  if M._row_state and M._row_state[bufnr] then
-    for r = srow, erow do M._row_state[bufnr][r] = nil end
-  end
-  if vim.tbl_isempty(M._row_state[bufnr] or {}) then
-    M._row_state[bufnr] = {}
-  end
-  if inline_data[bufnr] then
-    for r = srow, erow do inline_data[bufnr][r] = nil end
-  end
+	if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then
+		return
+	end
+	if not (srow and erow) then
+		return
+	end
+	if erow < srow then
+		srow, erow = erow, srow
+	end
+	-- wipe extmarks in range for our namespace only
+	vim.api.nvim_buf_clear_namespace(bufnr, M.ns, srow, erow + 1)
+	-- drop cached per-row state in that range
+	if M._row_state and M._row_state[bufnr] then
+		for r = srow, erow do
+			M._row_state[bufnr][r] = nil
+		end
+	end
+	if vim.tbl_isempty(M._row_state[bufnr] or {}) then
+		M._row_state[bufnr] = {}
+	end
+	if inline_data[bufnr] then
+		for r = srow, erow do
+			inline_data[bufnr][r] = nil
+		end
+	end
 end
 
 -- Clear only our signs in [srow, erow]
 function M.clear_signs_range(bufnr, srow, erow)
-  if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then return end
-  if not (srow and erow) then return end
-  if erow < srow then srow, erow = erow, srow end
+	if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then
+		return
+	end
+	if not (srow and erow) then
+		return
+	end
+	if erow < srow then
+		srow, erow = erow, srow
+	end
 
-  -- Clear extmark-based signs in range
-  if sign_marks[bufnr] then
-    for row = srow, erow do
-      if sign_marks[bufnr][row] and sign_marks[bufnr][row].mark_id then
-        pcall(api.nvim_buf_del_extmark, bufnr, ns_exec, sign_marks[bufnr][row].mark_id)
-        sign_marks[bufnr][row] = nil
-      end
-    end
-  end
+	-- Clear extmark-based signs in range
+	if sign_marks[bufnr] then
+		for row = srow, erow do
+			if sign_marks[bufnr][row] and sign_marks[bufnr][row].mark_id then
+				pcall(api.nvim_buf_del_extmark, bufnr, ns_exec, sign_marks[bufnr][row].mark_id)
+				sign_marks[bufnr][row] = nil
+			end
+		end
+	end
 
-  -- Also clear any old-style signs (for backwards compatibility)
-  local placed = vim.fn.sign_getplaced(bufnr, { group = GROUP}) or {}
-  local items = placed[1] and placed[1].signs or {}
-  for _, s in ipairs(items) do
-    local r0 = (s.lnum or 1) - 1
-    if r0 >= srow and r0 <= erow then
-      pcall(vim.fn.sign_unplace, GROUP, { buffer = bufnr, id = s.id })
-    end
-  end
-  remove_diagnostics_in_range(bufnr, srow, erow)
+	-- Also clear any old-style signs (for backwards compatibility)
+	local placed = vim.fn.sign_getplaced(bufnr, { group = GROUP }) or {}
+	local items = placed[1] and placed[1].signs or {}
+	for _, s in ipairs(items) do
+		local r0 = (s.lnum or 1) - 1
+		if r0 >= srow and r0 <= erow then
+			pcall(vim.fn.sign_unplace, GROUP, { buffer = bufnr, id = s.id })
+		end
+	end
+	remove_diagnostics_in_range(bufnr, srow, erow)
 end
 
 -- Return the sign kind for a given original row, if any.
 -- kind is one of: "run", "ok", "err"
 function M.get_sign_kind(bufnr, row)
-  if not (bufnr and api.nvim_buf_is_valid(bufnr)) then return nil end
-  local buf_signs = sign_marks[bufnr]
-  local info = buf_signs and buf_signs[row]
-  return info and info.kind or nil
+	if not (bufnr and api.nvim_buf_is_valid(bufnr)) then
+		return nil
+	end
+	local buf_signs = sign_marks[bufnr]
+	local info = buf_signs and buf_signs[row]
+	return info and info.kind or nil
 end
 
 -- Return the most severe sign kind in [srow, erow], if any.
 -- Precedence: "err" > "run" > "ok"
 function M.get_sign_kind_in_range(bufnr, srow, erow)
-  if not (bufnr and api.nvim_buf_is_valid(bufnr)) then return nil end
-  local buf_signs = sign_marks[bufnr]
-  if not buf_signs then return nil end
-  if srow == nil or erow == nil then return nil end
-  if erow < srow then srow, erow = erow, srow end
+	if not (bufnr and api.nvim_buf_is_valid(bufnr)) then
+		return nil
+	end
+	local buf_signs = sign_marks[bufnr]
+	if not buf_signs then
+		return nil
+	end
+	if srow == nil or erow == nil then
+		return nil
+	end
+	if erow < srow then
+		srow, erow = erow, srow
+	end
 
-  local has_run = false
-  local has_ok = false
-  for row, info in pairs(buf_signs) do
-    if row >= srow and row <= erow and info and info.kind then
-      if info.kind == "err" then
-        return "err"
-      elseif info.kind == "run" then
-        has_run = true
-      elseif info.kind == "ok" then
-        has_ok = true
-      end
-    end
-  end
-  if has_run then return "run" end
-  if has_ok then return "ok" end
-  return nil
+	local has_run = false
+	local has_ok = false
+	for row, info in pairs(buf_signs) do
+		if row >= srow and row <= erow and info and info.kind then
+			if info.kind == "err" then
+				return "err"
+			elseif info.kind == "run" then
+				has_run = true
+			elseif info.kind == "ok" then
+				has_ok = true
+			end
+		end
+	end
+	if has_run then
+		return "run"
+	end
+	if has_ok then
+		return "ok"
+	end
+	return nil
 end
 
 local ns_bg = vim.api.nvim_create_namespace("cell_line_background")
@@ -593,228 +717,237 @@ local ns_linehl = vim.api.nvim_create_namespace("cell_line_highlight")
 local ns_metadata = vim.api.nvim_create_namespace("jupyter-metadata")
 
 local CELL_HIGHLIGHT_SLOTS = {
-  header = {
-    parent = "CellLineBackground",
-    sub = "CellLineSubBackground",
-  },
-  border = {
-    parent = "CellLineBG",
-    sub = "CellLineSubBG",
-  },
+	header = {
+		parent = "CellLineBackground",
+		sub = "CellLineSubBackground",
+	},
+	border = {
+		parent = "CellLineBG",
+		sub = "CellLineSubBG",
+	},
 }
 
 local function get_cell_highlight(marker_type, slot)
-  local entry = CELL_HIGHLIGHT_SLOTS[slot]
-  if not entry then return nil end
-  if marker_type == "sub" then
-    local candidate = entry.sub
-    if candidate and highlight_is_defined(candidate) then
-      return candidate
-    end
-  end
-  return entry.parent
+	local entry = CELL_HIGHLIGHT_SLOTS[slot]
+	if not entry then
+		return nil
+	end
+	if marker_type == "sub" then
+		local candidate = entry.sub
+		if candidate and highlight_is_defined(candidate) then
+			return candidate
+		end
+	end
+	return entry.parent
 end
 
-local ns = vim.api.nvim_create_namespace('my-virt-lines')
+local ns = vim.api.nvim_create_namespace("my-virt-lines")
 
 local function get_ui_cfg()
-  local defaults = {
-    show_cell_borders = true,
-    highlight_metadata = true,
-    metadata_hl = {
-      fg = "#d8dee9",
-      bg = "#434c5e",
-    },
-  }
-  local ok, cfg = pcall(require, "jupyter.config")
-  if ok and type(cfg) == "table" and type(cfg.ui) == "table" then
-    for k, v in pairs(cfg.ui) do defaults[k] = v end
-  end
-  return defaults
+	local defaults = {
+		show_cell_borders = true,
+		highlight_metadata = true,
+		metadata_hl = {
+			fg = "#d8dee9",
+			bg = "#434c5e",
+		},
+	}
+	local ok, cfg = pcall(require, "jupyter.config")
+	if ok and type(cfg) == "table" and type(cfg.ui) == "table" then
+		for k, v in pairs(cfg.ui) do
+			defaults[k] = v
+		end
+	end
+	return defaults
 end
 
 local DEFAULT_METADATA_HL = {
-  fg = "#d8dee9",
-  bg = "#434c5e",
+	fg = "#d8dee9",
+	bg = "#434c5e",
 }
 
 local function resolve_metadata_hl_group(ui_cfg)
-  if not ui_cfg.highlight_metadata then
-    return nil
-  end
-  local hl = ui_cfg.metadata_hl
-  if type(hl) == "string" and hl ~= "" then
-    return hl
-  end
+	if not ui_cfg.highlight_metadata then
+		return nil
+	end
+	local hl = ui_cfg.metadata_hl
+	if type(hl) == "string" and hl ~= "" then
+		return hl
+	end
 
-  local opts = {}
-  for k, v in pairs(DEFAULT_METADATA_HL) do opts[k] = v end
-  if type(hl) == "table" then
-    for k, v in pairs(hl) do opts[k] = v end
-  end
+	local opts = {}
+	for k, v in pairs(DEFAULT_METADATA_HL) do
+		opts[k] = v
+	end
+	if type(hl) == "table" then
+		for k, v in pairs(hl) do
+			opts[k] = v
+		end
+	end
 
-  opts.default = false
-  local group = "JupyterMetadata"
-  pcall(vim.api.nvim_set_hl, 0, group, opts)
-  return group
+	opts.default = false
+	local group = "JupyterMetadata"
+	pcall(vim.api.nvim_set_hl, 0, group, opts)
+	return group
 end
 
 local METADATA_PATTERN = "^%s*#%s*::%s*(.-)%s*::%s*$"
 local metadata_cache = {}
 
 local function get_metadata_lines(bufnr)
-  local tick = vim.api.nvim_buf_get_changedtick(bufnr)
-  local cached = metadata_cache[bufnr]
-  if cached and cached.tick == tick then
-    return cached.items
-  end
+	local tick = vim.api.nvim_buf_get_changedtick(bufnr)
+	local cached = metadata_cache[bufnr]
+	if cached and cached.tick == tick then
+		return cached.items
+	end
 
-  local items = {}
-  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  for idx, line in ipairs(lines) do
-    local text = line:match(METADATA_PATTERN)
-    if text then
-      local prefix = line:match("^(%s*#%s*::%s*)") or ""
-      local suffix = line:match("(%s*::%s*)$") or ""
-      local line_width = vim.fn.strdisplaywidth(line)
-      local prefix_width = vim.fn.strdisplaywidth(prefix)
-      local suffix_width = vim.fn.strdisplaywidth(suffix)
-      local display = string.rep(" ", prefix_width) .. text .. string.rep(" ", suffix_width)
-      local display_width = vim.fn.strdisplaywidth(display)
-      table.insert(items, {
-        row = idx - 1,
-        text = text,
-        display = display,
-        pad = math.max(line_width, display_width) - display_width,
-      })
-    end
-  end
+	local items = {}
+	local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+	for idx, line in ipairs(lines) do
+		local text = line:match(METADATA_PATTERN)
+		if text then
+			local prefix = line:match("^(%s*#%s*::%s*)") or ""
+			local suffix = line:match("(%s*::%s*)$") or ""
+			local line_width = vim.fn.strdisplaywidth(line)
+			local prefix_width = vim.fn.strdisplaywidth(prefix)
+			local suffix_width = vim.fn.strdisplaywidth(suffix)
+			local display = string.rep(" ", prefix_width) .. text .. string.rep(" ", suffix_width)
+			local display_width = vim.fn.strdisplaywidth(display)
+			table.insert(items, {
+				row = idx - 1,
+				text = text,
+				display = display,
+				pad = math.max(line_width, display_width) - display_width,
+			})
+		end
+	end
 
-  metadata_cache[bufnr] = { tick = tick, items = items }
-  return items
+	metadata_cache[bufnr] = { tick = tick, items = items }
+	return items
 end
 
 local function replace_with_mysign(bufnr, lnum)
-  -- 1) remove ANY of {JupyterRun,JupyterOK,JupyterErr,MySign} on that line
-  --    (because they’re all in the same group)
-  pcall(vim.fn.sign_unplace, GROUP, { buffer = bufnr, lnum = lnum })
+	-- 1) remove ANY of {JupyterRun,JupyterOK,JupyterErr,MySign} on that line
+	--    (because they’re all in the same group)
+	pcall(vim.fn.sign_unplace, GROUP, { buffer = bufnr, lnum = lnum })
 
-  -- 2) place exactly one MySign with a stable id for this line
-  pcall(vim.fn.sign_place, lnum, GROUP, "MySign", bufnr, { lnum = lnum, priority = 10000 })
+	-- 2) place exactly one MySign with a stable id for this line
+	pcall(vim.fn.sign_place, lnum, GROUP, "MySign", bufnr, { lnum = lnum, priority = 10000 })
 end
 
 function M.highlight_cells()
-
 	pcall(vim.fn.sign_define, "MySign", { text = "●", texthl = "CellLineFG" })
-  local bufnr = vim.api.nvim_get_current_buf()
-  local winid = vim.api.nvim_get_current_win()
-  local width = vim.api.nvim_win_get_width(winid)
+	local bufnr = vim.api.nvim_get_current_buf()
+	local winid = vim.api.nvim_get_current_win()
+	local width = vim.api.nvim_win_get_width(winid)
 	vim.api.nvim_buf_clear_namespace(0, ns, 0, -1)
-  local cursor_line = vim.api.nvim_win_get_cursor(winid)[1] - 1
+	local cursor_line = vim.api.nvim_win_get_cursor(winid)[1] - 1
 
-  vim.api.nvim_buf_clear_namespace(bufnr, ns_bg, 0, -1)
-  vim.api.nvim_buf_clear_namespace(bufnr, ns_sign, 0, -1)
-  vim.api.nvim_buf_clear_namespace(bufnr, ns_linehl, 0, -1)
-  vim.api.nvim_buf_clear_namespace(bufnr, ns_metadata, 0, -1)
+	vim.api.nvim_buf_clear_namespace(bufnr, ns_bg, 0, -1)
+	vim.api.nvim_buf_clear_namespace(bufnr, ns_sign, 0, -1)
+	vim.api.nvim_buf_clear_namespace(bufnr, ns_linehl, 0, -1)
+	vim.api.nvim_buf_clear_namespace(bufnr, ns_metadata, 0, -1)
 
-  local ui_cfg = get_ui_cfg()
-  local metadata_hl = resolve_metadata_hl_group(ui_cfg)
+	local ui_cfg = get_ui_cfg()
+	local metadata_hl = resolve_metadata_hl_group(ui_cfg)
 
-  -- Check if this is the outbuf - if so, don't add virtual lines
-  local is_outbuf = vim.b[bufnr].is_outbuf == true
+	-- Check if this is the outbuf - if so, don't add virtual lines
+	local is_outbuf = vim.b[bufnr].is_outbuf == true
 
-  if ui_cfg.highlight_metadata and metadata_hl and not is_outbuf then
-    for _, meta in ipairs(get_metadata_lines(bufnr)) do
-      if meta.row ~= cursor_line then
-        local padding = ""
-        if meta.pad and meta.pad > 0 then padding = string.rep(" ", meta.pad) end
-        pcall(vim.api.nvim_buf_set_extmark, bufnr, ns_metadata, meta.row, 0, {
-          virt_text = {
-            { meta.display .. padding, metadata_hl },
-          },
-          virt_text_pos = "overlay",
-          hl_mode = "combine",
-        })
-      end
-    end
-  end
+	if ui_cfg.highlight_metadata and metadata_hl and not is_outbuf then
+		for _, meta in ipairs(get_metadata_lines(bufnr)) do
+			if meta.row ~= cursor_line then
+				local padding = ""
+				if meta.pad and meta.pad > 0 then
+					padding = string.rep(" ", meta.pad)
+				end
+				pcall(vim.api.nvim_buf_set_extmark, bufnr, ns_metadata, meta.row, 0, {
+					virt_text = {
+						{ meta.display .. padding, metadata_hl },
+					},
+					virt_text_pos = "overlay",
+					hl_mode = "combine",
+				})
+			end
+		end
+	end
 
-  local state = utils.get_marker_state(bufnr)
-  local marker_rows = state.order or {}
-  local marker_map = state.markers or {}
-  local parent_total = state.parent_total or 0
-  local line_count = vim.api.nvim_buf_line_count(bufnr)
-  local last_line = math.max(line_count - 1, 0)
+	local state = utils.get_marker_state(bufnr)
+	local marker_rows = state.order or {}
+	local marker_map = state.markers or {}
+	local parent_total = state.parent_total or 0
+	local line_count = vim.api.nvim_buf_line_count(bufnr)
+	local last_line = math.max(line_count - 1, 0)
 
 	_G.CurrentCell = nil
-  for idx, row in ipairs(marker_rows) do
-    local marker = marker_map[row]
-      if marker then
-      if row <= cursor_line then
-			_G.CurrentCell = row
+	for idx, row in ipairs(marker_rows) do
+		local marker = marker_map[row]
+		if marker then
+			if row <= cursor_line then
+				_G.CurrentCell = row
+			end
+
+			local label
+			if marker.type == "sub" then
+				local letter = marker.letter or utils.subcell_letter(marker.sub_index)
+				label = string.format("Cell %d%s:", marker.parent_index or idx, letter or "")
+			else
+				label = string.format("Cell %d:", marker.parent_index or idx)
+			end
+
+			local trimmed = vim.trim(marker.text or "")
+			local full_display = trimmed == "" and label or (label .. " " .. trimmed)
+			local header_hl = get_cell_highlight(marker.type, "header") or "CellLineBackground"
+			local border_hl = get_cell_highlight(marker.type, "border") or "CellLineBG"
+
+			local text_width = vim.fn.strdisplaywidth(full_display)
+			local padding_len = math.max(0, width - text_width)
+			local padding = string.rep(" ", padding_len)
+			local padding_top = string.rep("▔", width)
+			local padding_bottom = string.rep("▁", width)
+
+			if row ~= cursor_line and not is_outbuf then
+				vim.api.nvim_buf_set_extmark(bufnr, ns_sign, row, 0, {
+					virt_text = {
+						{ full_display .. padding, header_hl },
+					},
+					virt_text_pos = "overlay",
+					hl_mode = "combine",
+				})
+			end
+
+			if not is_outbuf then
+				vim.api.nvim_buf_add_highlight(bufnr, ns_linehl, header_hl, row, 0, -1)
+			end
+
+			if ui_cfg.show_cell_borders and not is_outbuf then
+				local next_row = marker_rows[idx + 1]
+				local content_start = math.min(row + 1, last_line)
+				local content_end = next_row and (next_row - 1) or last_line
+
+				if content_start > content_end then
+					content_start = row
+					content_end = row
+				end
+
+				local has_content = content_start > row
+
+				if has_content then
+					vim.api.nvim_buf_set_extmark(bufnr, ns, content_start, 0, {
+						virt_lines = { { { padding_top, border_hl } } },
+						virt_lines_above = true,
+					})
+					vim.api.nvim_buf_set_extmark(bufnr, ns, content_end, 0, {
+						virt_lines = { { { padding_bottom, border_hl } } },
+						virt_lines_above = false,
+						priority = 100, -- below inline output (priority=200) so border appears after it
+					})
+				end
+			end
 		end
-
-      local label
-      if marker.type == "sub" then
-        local letter = marker.letter or utils.subcell_letter(marker.sub_index)
-        label = string.format("Cell %d%s:", marker.parent_index or idx, letter or "")
-      else
-        label = string.format("Cell %d:", marker.parent_index or idx)
-      end
-
-      local trimmed = vim.trim(marker.text or "")
-      local full_display = trimmed == "" and label or (label .. " " .. trimmed)
-      local header_hl = get_cell_highlight(marker.type, "header") or "CellLineBackground"
-      local border_hl = get_cell_highlight(marker.type, "border") or "CellLineBG"
-
-      local text_width = vim.fn.strdisplaywidth(full_display)
-      local padding_len = math.max(0, width - text_width)
-      local padding = string.rep(" ", padding_len)
-      local padding_top = string.rep("▔", width)
-      local padding_bottom = string.rep("▁", width)
-
-      if row ~= cursor_line and not is_outbuf then
-        vim.api.nvim_buf_set_extmark(bufnr, ns_sign, row, 0, {
-          virt_text = {
-            { full_display .. padding, header_hl },
-          },
-          virt_text_pos = "overlay",
-          hl_mode = "combine",
-        })
-      end
-
-      if not is_outbuf then
-        vim.api.nvim_buf_add_highlight(bufnr, ns_linehl, header_hl, row, 0, -1)
-      end
-
-      if ui_cfg.show_cell_borders and not is_outbuf then
-        local next_row = marker_rows[idx + 1]
-        local content_start = math.min(row + 1, last_line)
-        local content_end = next_row and (next_row - 1) or last_line
-
-        if content_start > content_end then
-          content_start = row
-          content_end = row
-        end
-
-        local has_content = content_start > row
-
-        if has_content then
-          vim.api.nvim_buf_set_extmark(bufnr, ns, content_start, 0, {
-            virt_lines = { { { padding_top, border_hl } } },
-            virt_lines_above = true,
-          })
-          vim.api.nvim_buf_set_extmark(bufnr, ns, content_end, 0, {
-            virt_lines = { { { padding_bottom, border_hl } } },
-            virt_lines_above = false,
-            priority = 100,  -- below inline output (priority=200) so border appears after it
-          })
-        end
-      end
-    end
-  end
+	end
 	_G.CellCount = parent_total
-  M.refresh_inline(bufnr, cursor_line)
+	M.refresh_inline(bufnr, cursor_line)
 end
 
 return M

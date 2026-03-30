@@ -1,6 +1,6 @@
 -- Autoload entry for nvim-jupyter
 if vim.g.loaded_nvim_jupyter then
-  return
+	return
 end
 vim.g.loaded_nvim_jupyter = true
 
@@ -11,7 +11,9 @@ pcall(require, "jupyter.diagnostics")
 
 -- Kill the bridge/kernel when Neovim exits
 vim.api.nvim_create_autocmd({ "VimLeavePre", "ExitPre" }, {
-  callback = function()
-    pcall(function() require("jupyter.kernel").stop() end)
-  end,
+	callback = function()
+		pcall(function()
+			require("jupyter.kernel").stop()
+		end)
+	end,
 })
