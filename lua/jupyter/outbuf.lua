@@ -684,11 +684,20 @@ local function flush_buffer_updates()
 			if #all_lines > 0 then
 				api.nvim_buf_set_option(buf, "modifiable", true)
 
-				local start_pos = st.row
-				local end_pos = st.row
+				local start_pos, end_pos
+				local buf_last = api.nvim_buf_line_count(buf) - 1
 
-				-- If we have a previous progress line in the buffer, replace it
 				if st.line and st.line ~= "" then
+					-- There is an active progress line: replace it
+					start_pos = st.row
+					end_pos = st.row + 1
+				elseif st.row == buf_last then
+					-- Still on the initial blank sentinel: replace it
+					start_pos = st.row
+					end_pos = st.row
+				else
+					-- Append after the last real line, before the trailing blank sentinel
+					start_pos = st.row + 1
 					end_pos = st.row + 1
 				end
 
@@ -724,47 +733,68 @@ end
 -- Start the repeating timer
 buffer_flush_timer:start(BUFFER_FLUSH_MS, BUFFER_FLUSH_MS, flush_buffer_updates)
 
--- batched streaming with \r support; only append non-empty visible content
-function M.append_stream(seq, text, is_error)
-	if not text or text == "" then
-		return
-	end
-
-	local s = tostring(text):gsub("\r\n", "\n")
-	local trailing_nl = s:sub(-1) == "\n"
-
-	-- split into newline-terminated segments + optional final
-	local segs, i = {}, 1
-	while true do
-		local j = s:find("\n", i, true)
-		if not j then
-			table.insert(segs, s:sub(i))
-			break
+ -- batched streaming with \r support; only append non-empty visible content
+ function M.append_stream(seq, text, is_error)
+		if not text or text == "" then
+			 return
 		end
-		table.insert(segs, s:sub(i, j - 1))
-		i = j + 1
-	end
 
-	-- completed lines (only when non-empty after CR/ANSI stripping)
-	local last_idx = trailing_nl and #segs or (#segs - 1)
-	for k = 1, math.max(0, last_idx) do
-		local seg = segs[k]
-		local vis = seg:match("[^\r]*$") or seg
-		if seg == "" or not is_effectively_empty(vis) then
-			table.insert(pending_buffer_updates, { seq = seq, type = "line", text = vis, is_error = is_error })
+		local s = tostring(text):gsub("\r\n", "\n")
+		local trailing_nl = s:sub(-1) == "\n"
+
+		-- split into newline-terminated segments + optional final
+		local segs, i = {}, 1
+		while true do
+			 local j = s:find("\n", i, true)
+			 if not j then
+					table.insert(segs, s:sub(i))
+					break
+			 end
+			 table.insert(segs, s:sub(i, j - 1))
+			 i = j + 1
 		end
-	end
 
-	-- in-place progress frame (no newline): update only if non-empty and changed
-	if not trailing_nl then
-		local final = (segs[#segs] or ""):match("[^\r]*$") or ""
-		if not is_effectively_empty(final) then
-			table.insert(pending_buffer_updates, { seq = seq, type = "progress", text = final, is_error = is_error })
+		-- completed lines
+		-- preserve internal blank lines, but ignore the trailing split sentinel
+		local last_idx = trailing_nl and (#segs - 1) or #segs
+		for k = 1, math.max(0, last_idx) do
+			 local raw = segs[k]
+
+			 if raw == "" then
+					-- genuine blank line between two \n boundaries
+					table.insert(pending_buffer_updates, {
+						 seq = seq,
+						 type = "line",
+						 text = "",
+						 is_error = is_error,
+					})
+			 else
+					local vis = raw:match("[^\r]*$") or raw
+					if not is_effectively_empty(vis) then
+						 table.insert(pending_buffer_updates, {
+								seq = seq,
+								type = "line",
+								text = vis,
+								is_error = is_error,
+						 })
+					end
+			 end
 		end
-	end
 
-	-- Updates will be flushed by the repeating timer (every 50ms)
-end
+		-- in-place progress frame (no newline): update only if non-empty and changed
+		if not trailing_nl then
+			 local final = (segs[#segs] or ""):match("[^\r]*$") or ""
+			 if not is_effectively_empty(final) then
+					table.insert(pending_buffer_updates, {
+						 seq = seq,
+						 type = "progress",
+						 text = final,
+						 is_error = is_error,
+					})
+			 end
+		end
+ end
+
 
 function M.append(seq, text, is_error)
 	local s = tostring(text or "")
