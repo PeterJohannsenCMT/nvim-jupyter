@@ -755,8 +755,9 @@ buffer_flush_timer:start(BUFFER_FLUSH_MS, BUFFER_FLUSH_MS, flush_buffer_updates)
 		end
 
 		-- completed lines
-		-- preserve internal blank lines, but ignore the trailing split sentinel
-		local last_idx = trailing_nl and (#segs - 1) or #segs
+		-- preserve internal blank lines, but leave the final unterminated segment
+		-- for progress handling so CR-style updates replace in place.
+		local last_idx = #segs - 1
 		for k = 1, math.max(0, last_idx) do
 			 local raw = segs[k]
 
