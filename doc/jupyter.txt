@@ -373,6 +373,8 @@ Cell Behavior:
 - When the cursor is inside a cell, that entire cell is executed
 - Put `# jupyter: skip` as the first non-empty line inside a cell to make
   cell-based commands skip it
+- Put `# jupyter: once` as the first non-empty line to run a cell only once
+  per kernel session. The state resets when the kernel stops or restarts.
 - Files without any markers will show a warning when trying to run cells
 
 Highlight groups:~

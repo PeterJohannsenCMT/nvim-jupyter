@@ -45,10 +45,7 @@ function M.eval_current_block()
 		vim.notify("Jupyter: kernel not running (use :JupyterStart)", vim.log.levels.WARN)
 		return
 	end
-	local s, e = utils.find_code_block({ include_subcells = true })
-	-- e is inclusive (0-based) from utils → pass e+1 to buf_get_lines (exclusive)
-	local lines = vim.api.nvim_buf_get_lines(0, s, e + 1, false)
-	kernel.execute(table.concat(lines, "\n"), e) -- place inline output at end line
+	kernel.eval_current_block()
 end
 
 ---------------------------------------------------------------------
@@ -59,9 +56,7 @@ function M.eval_all_above()
 		vim.notify("Jupyter: kernel not running (use :JupyterStart)", vim.log.levels.WARN)
 		return
 	end
-	local current_line0 = vim.api.nvim_win_get_cursor(0)[1] - 1 -- 0-based
-	local lines = vim.api.nvim_buf_get_lines(0, 0, current_line0 + 1, false) -- include cursor line
-	kernel.execute(table.concat(lines, "\n"), current_line0)
+	kernel.eval_all_above()
 end
 
 -- Expose the current cell title (text after #%% / ##%%) for statuslines, etc.
@@ -259,6 +254,13 @@ local function run_current_cell_stay()
 	if utils.cell_is_skipped(lines) then
 		vim.notify("Jupyter: skipped cell marked with '# jupyter: skip'", vim.log.levels.INFO)
 		return
+	end
+	if utils.cell_runs_once(lines) then
+		if utils.once_cell_has_run(bufnr, s) then
+			vim.notify("Jupyter: skipped cell; '# jupyter: once' cell already ran", vim.log.levels.INFO)
+			return
+		end
+		utils.mark_once_cell_run(bufnr, s)
 	end
 	ui.clear_range(bufnr, s, e + 1)
 	ui.clear_signs_range(bufnr, s, e + 1)

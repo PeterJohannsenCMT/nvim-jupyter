@@ -286,6 +286,7 @@ print("This is a sub-cell")
 - When cursor is on a marker line, execution includes the cell **below** that marker
 - When cursor is inside a cell, that entire cell is executed
 - Put `# jupyter: skip` as the first non-empty line inside a cell to make cell-based commands skip it
+- Put `# jupyter: once` as the first non-empty line to run a cell only once per kernel session (it resets after stopping or restarting the kernel)
 - Files without any markers will show a warning
 
 **Highlight Groups:**
@@ -320,6 +321,7 @@ NOTE: Inline output is best for quick feedback on small results or error message
 - End a symbol with `?` or `??` inside a cell (e.g. `np.linspace?`) to open IPython help in the configured pager split (see `pager` settings in the configuration). These lines are ignored by Pyright and BasedPyright diagnostics so you can keep them in your code without warnings.
 - Lines starting with `%` are treated as IPython line magics and expanded to `get_ipython().run_line_magic(...)` before execution, so commands like `%time`, `%pip install ...`, or `%who` run as expected when sent from Neovim.
 - Start a cell with `# jupyter: skip` to exclude it from `:JupyterRunCell`, `:JupyterRunCellStay`, `:JupyterRunCells`, `:JupyterRunAbove`, and `:JupyterDebugCell`.
+- Start a cell with `# jupyter: once` to run it at most once per kernel session. Subsequent cell-based runs, including debug runs, skip it; the state resets when the kernel stops or restarts.
 
 ## 🏗️ Architecture
 

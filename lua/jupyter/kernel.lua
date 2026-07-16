@@ -664,6 +664,7 @@ local function ensure_bridge()
 			debugpy_state = nil
 			debugpy_waiters = {}
 			ready_waiters = {}
+			utils.reset_once_cells()
 			ui.clear_all_signs()
 			return
 		end
@@ -709,6 +710,7 @@ function M.stop()
 	ready_waiters = {}
 	debugpy_waiters = {}
 	debugpy_state = nil
+	utils.reset_once_cells()
 	_inline_rl:reset()
 	ui.clear_all_signs()
 	-- Clean up throttle timers if throttle module is loaded
@@ -754,6 +756,7 @@ function M.restart(opts)
 	end
 	debugpy_state = nil
 	debugpy_waiters = {}
+	utils.reset_once_cells()
 	if opts.optimized ~= nil then
 		optimized_start = opts.optimized == true
 	end
@@ -902,6 +905,18 @@ local function notify_skipped_cell(context)
 	vim.notify(msg, vim.log.levels.INFO)
 end
 
+local function prepare_once_cell(bufnr, start_row, lines)
+	if not utils.cell_runs_once(lines) then
+		return true
+	end
+	if utils.once_cell_has_run(bufnr, start_row) then
+		vim.notify("Jupyter: skipped cell; '# jupyter: once' cell already ran", vim.log.levels.INFO)
+		return false
+	end
+	utils.mark_once_cell_run(bufnr, start_row)
+	return true
+end
+
 function M.goto_running_cell()
 	local cell = get_head_cell()
 	if not cell then
@@ -1008,6 +1023,9 @@ function M.eval_current_block()
 		end
 		return
 	end
+	if not prepare_once_cell(bufnr, s, lines) then
+		return
+	end
 	local code = table.concat(lines, "\n")
 	ui.clear_range(bufnr, s, e + 1)
 	ui.clear_signs_range(bufnr, s, e + 1)
@@ -1049,6 +1067,8 @@ function M.eval_all_above()
 	local lines = vim.api.nvim_buf_get_lines(bufnr, 0, current_line + 1, false)
 	local state = utils.get_marker_state(bufnr)
 	local skip_ranges = {}
+	local skipped_skip_directive_any = false
+	local skipped_once_any = false
 
 	if #state.order > 0 then
 		for idx, marker_row in ipairs(state.order) do
@@ -1062,6 +1082,14 @@ function M.eval_all_above()
 				local cell_lines = vim.api.nvim_buf_get_lines(bufnr, start_row, end_row + 1, false)
 				if utils.cell_is_skipped(cell_lines) then
 					table.insert(skip_ranges, { start_row = start_row, end_row = end_row })
+					skipped_skip_directive_any = true
+				elseif utils.cell_runs_once(cell_lines) then
+					if utils.once_cell_has_run(bufnr, start_row) then
+						table.insert(skip_ranges, { start_row = start_row, end_row = end_row })
+						skipped_once_any = true
+					else
+						utils.mark_once_cell_run(bufnr, start_row)
+					end
 				end
 			end
 		end
@@ -1069,7 +1097,6 @@ function M.eval_all_above()
 
 	local filtered = {}
 	local range_idx = 1
-	local skipped_any = false
 	for row1, line in ipairs(lines) do
 		local row0 = row1 - 1
 		while skip_ranges[range_idx] and row0 > skip_ranges[range_idx].end_row do
@@ -1077,15 +1104,16 @@ function M.eval_all_above()
 		end
 		local range = skip_ranges[range_idx]
 		local in_skipped_range = range and row0 >= range.start_row and row0 <= range.end_row
-		if in_skipped_range then
-			skipped_any = true
-		else
+		if not in_skipped_range then
 			table.insert(filtered, line)
 		end
 	end
 
-	if skipped_any then
+	if skipped_skip_directive_any then
 		notify_skipped_cell("run-above")
+	end
+	if skipped_once_any then
+		vim.notify("Jupyter: skipped cells; '# jupyter: once' cells already ran", vim.log.levels.INFO)
 	end
 
 	local code = table.concat(filtered, "\n")
@@ -1146,6 +1174,9 @@ function M.run_cells_by_indices(indices)
 			if not empty then
 				if utils.cell_is_skipped(lines) then
 					notify_skipped_cell("cell " .. idx)
+					goto continue
+				end
+				if not prepare_once_cell(bufnr, s, lines) then
 					goto continue
 				end
 				ui.clear_range(bufnr, s, e + 1)

@@ -105,6 +105,9 @@ local function get_current_cell()
 	if utils.cell_is_skipped(lines) then
 		return nil, "Current cell is marked with '# jupyter: skip'"
 	end
+	if utils.cell_runs_once(lines) and utils.once_cell_has_run(bufnr, s) then
+		return nil, "Current cell is marked with '# jupyter: once' and has already run"
+	end
 
 	local marker_text = "#%% [debug]"
 	if s > 0 then
@@ -126,6 +129,7 @@ local function get_current_cell()
 		start_row = s,
 		end_row = e,
 		code = table.concat(lines, "\n"),
+		runs_once = utils.cell_runs_once(lines),
 		marker_text = marker_text,
 	}
 end
@@ -315,6 +319,13 @@ function M.debug_current_cell()
 		end
 
 		attach_and_run(state, source_path, function()
+			if cell.runs_once then
+				if utils.once_cell_has_run(cell.bufnr, cell.start_row) then
+					vim.notify("Jupyter: skipped cell; '# jupyter: once' cell already ran", vim.log.levels.INFO)
+					return
+				end
+				utils.mark_once_cell_run(cell.bufnr, cell.start_row)
+			end
 			kernel.execute(debug_code, cell.end_row, cell.marker_text, {
 				source_path = source_path,
 				absolute_lineno = true,

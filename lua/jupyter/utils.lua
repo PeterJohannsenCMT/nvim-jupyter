@@ -2,6 +2,8 @@
 local M = {}
 
 local marker_state_cache = {}
+local once_namespace = vim.api.nvim_create_namespace("nvim-jupyter-once")
+local once_cells = {}
 
 local function is_sub_marker_line(s)
 	return type(s) == "string" and s:match("^%s*#%s*#%s*%%")
@@ -168,6 +170,53 @@ function M.cell_is_skipped(lines)
 		end
 	end
 	return false
+end
+
+function M.is_once_directive_line(line)
+	return type(line) == "string" and line:match("^%s*#%s*jupyter%s*:%s*once%s*$") ~= nil
+end
+
+-- A once directive, like skip, must be the first non-empty line in a cell.
+function M.cell_runs_once(lines)
+	if type(lines) ~= "table" then
+		return false
+	end
+	for _, line in ipairs(lines) do
+		if not line:match("^%s*$") then
+			return M.is_once_directive_line(line)
+		end
+	end
+	return false
+end
+
+-- Once state belongs to the live kernel session.  Extmarks keep the state with
+-- a cell when lines are inserted or deleted above it.
+function M.once_cell_has_run(bufnr, start_row)
+	for _, id in ipairs(once_cells[bufnr] or {}) do
+		local pos = vim.api.nvim_buf_get_extmark_by_id(bufnr, once_namespace, id, {})
+		if pos[1] == start_row then
+			return true
+		end
+	end
+	return false
+end
+
+function M.mark_once_cell_run(bufnr, start_row)
+	if M.once_cell_has_run(bufnr, start_row) then
+		return
+	end
+	local id = vim.api.nvim_buf_set_extmark(bufnr, once_namespace, start_row, 0, { right_gravity = false })
+	once_cells[bufnr] = once_cells[bufnr] or {}
+	table.insert(once_cells[bufnr], id)
+end
+
+function M.reset_once_cells()
+	for bufnr in pairs(once_cells) do
+		if vim.api.nvim_buf_is_valid(bufnr) then
+			vim.api.nvim_buf_clear_namespace(bufnr, once_namespace, 0, -1)
+		end
+	end
+	once_cells = {}
 end
 
 -- Return marker info for the cell that contains the cursor.
