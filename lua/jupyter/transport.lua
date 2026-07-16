@@ -72,17 +72,15 @@ local function make_bridge(stdin, stdout, stderr, handle)
 						vim.log.levels.WARN
 					)
 				end
-			elseif trimmed ~= "" then
-				vim.notify("[nvim-jupyter] bridge noise: " .. trimmed, vim.log.levels.INFO)
 			end
 		end
 	end
 
 	uv.read_start(stdout, function(err, chunk)
 		if err then
-			vim.schedule(function()
-				vim.notify("nvim-jupyter bridge stdout error: " .. tostring(err), vim.log.levels.WARN)
-			end)
+			-- vim.schedule(function()
+			-- 	vim.notify("nvim-jupyter bridge stdout error: " .. tostring(err), vim.log.levels.WARN)
+			-- end)
 			return
 		end
 		if not chunk then
@@ -117,16 +115,16 @@ local function make_bridge(stdin, stdout, stderr, handle)
 		local lines = pending_stderr
 		pending_stderr = {}
 
-		for _, msg in ipairs(lines) do
-			vim.notify("[nvim-jupyter] bridge stderr: " .. msg, vim.log.levels.INFO)
-		end
+		-- for _, msg in ipairs(lines) do
+		-- 	vim.notify("[nvim-jupyter] bridge stderr: " .. msg, vim.log.levels.INFO)
+		-- end
 	end
 
 	uv.read_start(stderr, function(err, chunk)
 		if err then
-			vim.schedule(function()
-				vim.notify("nvim-jupyter bridge stderr error: " .. tostring(err), vim.log.levels.WARN)
-			end)
+			-- vim.schedule(function()
+			-- 	vim.notify("nvim-jupyter bridge stderr error: " .. tostring(err), vim.log.levels.WARN)
+			-- end)
 			return
 		end
 		if not chunk then
