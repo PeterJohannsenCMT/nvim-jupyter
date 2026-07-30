@@ -258,6 +258,15 @@ local function exists(p)
 	return vim.loop.fs_stat(p) ~= nil
 end
 
+local function pending_clear_range(cell)
+	if not (cell and cell.bufnr and vim.api.nvim_buf_is_valid(cell.bufnr) and cell.row ~= nil) then
+		return nil, nil
+	end
+	local srow = cell.clear_start_row or cell.start_row or cell.row
+	local erow = cell.clear_end_row or cell.row
+	return srow, erow
+end
+
 local function drop_pending_queue_entries()
 	if #queue == 0 then
 		return 0
@@ -283,8 +292,9 @@ local function drop_pending_queue_entries()
 	local cleared = 0
 	for _, seq_id in ipairs(removed) do
 		local cell = pending[seq_id]
-		if cell and cell.bufnr and vim.api.nvim_buf_is_valid(cell.bufnr) and cell.row ~= nil then
-			ui.clear_signs_range(cell.bufnr, cell.row, cell.row)
+		local srow, erow = pending_clear_range(cell)
+		if srow and erow then
+			ui.clear_signs_range(cell.bufnr, srow, erow)
 			cleared = cleared + 1
 		end
 		pending[seq_id] = nil
@@ -573,9 +583,12 @@ local function ensure_bridge()
 				end
 				-- concise inline error (keep it visible after completion)
 				local inline = (msg.ename or "Error") .. (msg.evalue and (": " .. msg.evalue) or "")
-				-- Clear the running sign at the cell anchor row so spinners stop.
-				ui.clear_signs_range(bufnr, row, row)
-				ui.place_sign("err", bufnr, diag_row)
+				-- Replace the spinner with × at the cell end, matching the success
+				-- tick position, and point to the exception line separately.
+				ui.place_sign("err", bufnr, row)
+				if diag_row ~= row then
+					ui.place_sign("err_line", bufnr, diag_row)
+				end
 				ui.show_inline(bufnr, diag_row, inline, { error = true })
 				local ns = vim.api.nvim_create_namespace("jupyter_exec")
 				local line = vim.api.nvim_buf_get_lines(bufnr, diag_row, diag_row + 1, false)[1] or ""
@@ -611,7 +624,7 @@ local function ensure_bridge()
 
 			if bufnr and row then
 				if had_error[s] then
-					-- keep the error sign and the inline error text as-is
+					-- keep the cell-end ×, exception arrow, and inline error text as-is
 					had_error[s] = nil
 				else
 					-- success path: ✓ and finish_row (clear progress-only inline)
@@ -885,8 +898,7 @@ function M.eval_selection()
 end
 
 function M.cancel_queue()
-	queue = {}
-	inflight = false
+	drop_pending_queue_entries()
 end
 
 local function get_head_cell()
@@ -915,6 +927,66 @@ local function prepare_once_cell(bufnr, start_row, lines)
 	end
 	utils.mark_once_cell_run(bufnr, start_row)
 	return true
+end
+
+-- Advance exactly as a successful current-cell run would, even when no code is sent.
+local function advance_cursor_after_cell(end_row)
+	local next_row0 = utils.first_line_of_next_cell_from(end_row)
+	if next_row0 then
+		vim.api.nvim_win_set_cursor(0, { next_row0 + 1, 0 })
+		return
+	end
+
+	local last_row0 = vim.api.nvim_buf_line_count(0) - 1
+	if last_row0 >= 0 then
+		vim.api.nvim_win_set_cursor(0, { last_row0 + 1, 0 })
+	end
+end
+
+-- Parent-cell commands include subcells, so remove subcells that opt out before
+-- sending the parent source to the kernel.
+local function code_without_skipped_subcells(bufnr, start_row, end_row)
+	local state = utils.get_marker_state(bufnr)
+	local chunks = {}
+	local cursor = start_row
+	local skipped_directive = false
+	local skipped_once = false
+
+	for index, marker_row in ipairs(state.order) do
+		local marker = state.markers[marker_row]
+		if marker_row >= start_row and marker_row <= end_row and marker and marker.type == "sub" then
+			local sub_end = state.order[index + 1] and (state.order[index + 1] - 1) or end_row
+			sub_end = math.min(sub_end, end_row)
+			if cursor <= marker_row - 1 then
+				vim.list_extend(chunks, vim.api.nvim_buf_get_lines(bufnr, cursor, marker_row, false))
+			end
+
+			local sub_start = marker_row + 1
+			local sub_lines = vim.api.nvim_buf_get_lines(bufnr, sub_start, sub_end + 1, false)
+			if utils.cell_is_skipped(sub_lines) then
+				skipped_directive = true
+			elseif utils.cell_runs_once(sub_lines) and utils.once_cell_has_run(bufnr, sub_start) then
+				skipped_once = true
+			else
+				if utils.cell_runs_once(sub_lines) then
+					utils.mark_once_cell_run(bufnr, sub_start)
+				end
+				vim.list_extend(chunks, vim.api.nvim_buf_get_lines(bufnr, marker_row, sub_end + 1, false))
+			end
+			cursor = sub_end + 1
+		end
+	end
+	if cursor <= end_row then
+		vim.list_extend(chunks, vim.api.nvim_buf_get_lines(bufnr, cursor, end_row + 1, false))
+	end
+
+	if skipped_directive then
+		notify_skipped_cell("subcell")
+	end
+	if skipped_once then
+		vim.notify("Jupyter: skipped subcell; '# jupyter: once' cell already ran", vim.log.levels.INFO)
+	end
+	return table.concat(chunks, "\n")
 end
 
 function M.goto_running_cell()
@@ -966,8 +1038,10 @@ function M.execute(code, row, marker_text, opts)
 		maybe_log_handles("before-exec", true)
 	end
 	local start_row = compute_start_row(row, send_code)
+	local clear_start_row = opts.clear_start_row or start_row
+	local clear_end_row = opts.clear_end_row or row
 
-	ui.clear_diagnostics_range(M.owner_buf, start_row, row)
+	ui.clear_signs_range(M.owner_buf, clear_start_row, clear_end_row)
 	-- Clear inline at run start to avoid appending on re-run
 	-- ui.clear_row(M.owner_buf, row)
 	ui.place_sign("run", M.owner_buf, row)
@@ -977,6 +1051,8 @@ function M.execute(code, row, marker_text, opts)
 	pending[seq] = {
 		row = row,
 		start_row = start_row,
+		clear_start_row = clear_start_row,
+		clear_end_row = clear_end_row,
 		bufnr = bufnr,
 		source_path = opts.source_path,
 		absolute_lineno = opts.absolute_lineno == true,
@@ -1012,23 +1088,17 @@ function M.eval_current_block()
 	end
 	if utils.cell_is_skipped(lines) then
 		notify_skipped_cell("run")
-		local next_row0 = utils.first_line_of_next_cell_from(e)
-		if next_row0 then
-			vim.api.nvim_win_set_cursor(0, { next_row0 + 1, 0 })
-		else
-			local last_row0 = vim.api.nvim_buf_line_count(0) - 1
-			if last_row0 >= 0 then
-				vim.api.nvim_win_set_cursor(0, { last_row0 + 1, 0 })
-			end
-		end
+		advance_cursor_after_cell(e)
 		return
 	end
 	if not prepare_once_cell(bufnr, s, lines) then
+		advance_cursor_after_cell(e)
 		return
 	end
-	local code = table.concat(lines, "\n")
+	local marker = s > 0 and utils.get_marker_state(bufnr).markers[s - 1] or nil
+	local code = marker and marker.type == "parent" and code_without_skipped_subcells(bufnr, s, e)
+		or table.concat(lines, "\n")
 	ui.clear_range(bufnr, s, e + 1)
-	ui.clear_signs_range(bufnr, s, e + 1)
 
 	-- Extract the cell marker text (if s > 0, the marker is at s-1)
 	local marker_text = "#%%"
@@ -1046,18 +1116,10 @@ function M.eval_current_block()
 		end
 	end
 
-	M.execute(code, e, marker_text) -- anchor at end row, pass marker text
+	M.execute(code, e, marker_text, { clear_start_row = s, clear_end_row = e }) -- anchor at end row, pass marker text
 
 	-- Move cursor to the start of the next cell (or EOF if none).
-	local next_row0 = utils.first_line_of_next_cell_from(e)
-	if next_row0 then
-		vim.api.nvim_win_set_cursor(0, { next_row0 + 1, 0 })
-	else
-		local last_row0 = vim.api.nvim_buf_line_count(0) - 1
-		if last_row0 >= 0 then
-			vim.api.nvim_win_set_cursor(0, { last_row0 + 1, 0 })
-		end
-	end
+	advance_cursor_after_cell(e)
 end
 
 -- Convenience: run all above
@@ -1120,7 +1182,7 @@ function M.eval_all_above()
 	if code:match("^%s*$") then
 		return
 	end
-	M.execute(code, current_line - 1) -- anchor at end row
+	M.execute(code, current_line - 1, nil, { clear_start_row = 0, clear_end_row = current_line - 1 }) -- anchor at end row
 end
 
 -- Run cells by their parent indices (list of integers)
@@ -1180,7 +1242,6 @@ function M.run_cells_by_indices(indices)
 					goto continue
 				end
 				ui.clear_range(bufnr, s, e + 1)
-				ui.clear_signs_range(bufnr, s, e + 1)
 
 				-- Get marker text
 				local marker_line = vim.api.nvim_buf_get_lines(bufnr, marker_row, marker_row + 1, false)[1]
@@ -1196,7 +1257,12 @@ function M.run_cells_by_indices(indices)
 					end
 				end
 
-				M.execute(table.concat(lines, "\n"), e, marker_text)
+				M.execute(
+					code_without_skipped_subcells(bufnr, s, e),
+					e,
+					marker_text,
+					{ clear_start_row = s, clear_end_row = e }
+				)
 			end
 		else
 			vim.notify("Jupyter: cell " .. idx .. " not found", vim.log.levels.WARN)

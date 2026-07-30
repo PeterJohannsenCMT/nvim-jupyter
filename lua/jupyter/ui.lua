@@ -8,6 +8,9 @@ local GROUP = "nvim-jupyter"
 
 local ns = api.nvim_create_namespace("nvim-jupyter-ui")
 local ns_exec = vim.api.nvim_create_namespace("jupyter_exec")
+-- Execution diagnostics use our own location sign, rather than also rendering
+-- Neovim's configured DiagnosticSignError on the failing line.
+vim.diagnostic.config({ signs = false }, ns_exec)
 M.ns = ns
 
 local function highlight_is_defined(name)
@@ -432,6 +435,8 @@ local function get_sign_appearance(kind)
 		return SPINNER_FRAMES[1], "JupyterRunning"
 	elseif kind == "ok" then
 		return "✓", "DiagnosticOk"
+	elseif kind == "err_line" then
+		return "->", "DiagnosticError"
 	else -- "err"
 		return "×", "DiagnosticError"
 	end
@@ -662,7 +667,7 @@ function M.clear_signs_range(bufnr, srow, erow)
 end
 
 -- Return the sign kind for a given original row, if any.
--- kind is one of: "run", "ok", "err"
+-- kind is one of: "run", "ok", "err", "err_line"
 function M.get_sign_kind(bufnr, row)
 	if not (bufnr and api.nvim_buf_is_valid(bufnr)) then
 		return nil
@@ -693,7 +698,7 @@ function M.get_sign_kind_in_range(bufnr, srow, erow)
 	local has_ok = false
 	for row, info in pairs(buf_signs) do
 		if row >= srow and row <= erow and info and info.kind then
-			if info.kind == "err" then
+			if info.kind == "err" or info.kind == "err_line" then
 				return "err"
 			elseif info.kind == "run" then
 				has_run = true

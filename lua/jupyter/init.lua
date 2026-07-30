@@ -263,8 +263,7 @@ local function run_current_cell_stay()
 		utils.mark_once_cell_run(bufnr, s)
 	end
 	ui.clear_range(bufnr, s, e + 1)
-	ui.clear_signs_range(bufnr, s, e + 1)
-	kernel.execute(table.concat(lines, "\n"), e)
+	kernel.execute(table.concat(lines, "\n"), e, nil, { clear_start_row = s, clear_end_row = e })
 end
 
 local function run_cell_smart()

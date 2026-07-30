@@ -329,6 +329,8 @@ function M.debug_current_cell()
 			kernel.execute(debug_code, cell.end_row, cell.marker_text, {
 				source_path = source_path,
 				absolute_lineno = true,
+				clear_start_row = cell.start_row,
+				clear_end_row = cell.end_row,
 			})
 		end)
 	end)
