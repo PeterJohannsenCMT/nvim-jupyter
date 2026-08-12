@@ -780,19 +780,18 @@ local function resolve_metadata_hl_group(ui_cfg)
 		return hl
 	end
 
-	local opts = {}
-	for k, v in pairs(DEFAULT_METADATA_HL) do
-		opts[k] = v
-	end
-	if type(hl) == "table" then
-		for k, v in pairs(hl) do
-			opts[k] = v
-		end
-	end
-
-	opts.default = false
+	-- local opts = {}
+	-- for k, v in pairs(DEFAULT_METADATA_HL) do
+	-- 	opts[k] = v
+	-- end
+	-- if type(hl) == "table" then
+	-- 	for k, v in pairs(hl) do
+	-- 		opts[k] = v
+	-- 	end
+	-- end
+	--
+	-- opts.default = false
 	local group = "JupyterMetadata"
-	pcall(vim.api.nvim_set_hl, 0, group, opts)
 	return group
 end
 
