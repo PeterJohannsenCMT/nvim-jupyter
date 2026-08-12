@@ -168,8 +168,11 @@ require("jupyter").setup({
   bridge_script = nil,
 
   -- Extra environment for the bridge/kernel (e.g. keep PATH from your login shell)
+  -- Matplotlib uses your matplotlibrc backend by default; set MPLBACKEND here
+  -- only when you want to override it for Jupyter kernels.
   env = {
     -- PATH = vim.env.PATH,
+    -- MPLBACKEND = "Agg",
   },
   
   -- Output pane settings

@@ -257,8 +257,11 @@ passing options to the setup function: >
       bridge_script = nil,
 
       -- Environment overrides for the bridge/kernel (helpful if PATH differs)
+      -- Matplotlib uses your matplotlibrc backend by default; set MPLBACKEND
+      -- here only when you want to override it for Jupyter kernels.
       env = {
         -- PATH = vim.env.PATH,
+        -- MPLBACKEND = "Agg",
       },
       
       -- Output pane settings

@@ -91,6 +91,24 @@ def _signal_kernel(signame):
     return True, None
 
 # ---------- kernel mgmt ----------
+def _preserve_matplotlibrc_backend(extra_env):
+    if extra_env.get("MPLBACKEND"):
+        return
+
+    old_backend = os.environ.pop("MPLBACKEND", None)
+    try:
+        try:
+            import matplotlib
+            backend = matplotlib.get_backend()
+        except Exception:
+            return
+
+        if backend:
+            extra_env["MPLBACKEND"] = str(backend)
+    finally:
+        if old_backend is not None:
+            os.environ["MPLBACKEND"] = old_backend
+
 def _start_kernel(kernel, cwd, optimized=False):
     global km, kc
     if cwd:
@@ -108,6 +126,7 @@ def _start_kernel(kernel, cwd, optimized=False):
         extra_env["PYTHONOPTIMIZE"] = "2"
     else:
         extra_env["PYTHONOPTIMIZE"] = "0"
+    _preserve_matplotlibrc_backend(extra_env)
     km.start_kernel(env = extra_env)
     kc = km.client()
     kc.start_channels()
