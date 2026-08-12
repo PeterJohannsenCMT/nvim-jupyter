@@ -112,6 +112,14 @@ function M.setup(opts)
 	if opts.bridge_script then
 		cfg.bridge_script = opts.bridge_script
 	end
+	if opts.env then
+		if not cfg.env then
+			cfg.env = {}
+		end
+		for k, v in pairs(opts.env) do
+			cfg.env[k] = v
+		end
+	end
 	if opts.out and type(cfg.out) == "table" then
 		for k, v in pairs(opts.out) do
 			cfg.out[k] = v
