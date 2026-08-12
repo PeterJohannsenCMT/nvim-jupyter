@@ -58,6 +58,9 @@ local escape_augroup = api.nvim_create_augroup("JupyterOutbufEscape", { clear = 
 -- per-seq cell state
 -- state[seq] = { opened = bool, row = int|nil, line = string }
 local state = {}
+local pending_buffer_updates = {}
+local buffer_flush_timer = nil
+local stop_buffer_flush_timer
 
 -- Baleia for ANSI color rendering (only used for errors)
 local baleia = nil
@@ -535,8 +538,11 @@ function M.clear()
 	-- Clear cell marker highlights
 	api.nvim_buf_clear_namespace(buf, CELL_MARKER_NS, 0, -1)
 	state = {}
-	-- Clear any pending buffer updates
+	-- Clear any pending buffer updates and their one-shot flush timer.
 	pending_buffer_updates = {}
+	if stop_buffer_flush_timer then
+		stop_buffer_flush_timer()
+	end
 	scroll_to_bottom()
 end
 
@@ -627,10 +633,19 @@ local function is_effectively_empty(s)
 	return s:match("^%s*$") ~= nil
 end
 
--- Batch buffer updates to prevent EMFILE
-local pending_buffer_updates = {}
-local buffer_flush_timer = vim.loop.new_timer()
-local BUFFER_FLUSH_MS = 50 -- Flush every 50ms max
+-- Batch buffer updates to prevent EMFILE. The timer is one-shot and exists
+-- only while there is work to flush; an idle Jupyter module should not wake
+-- Neovim twenty times per second.
+local BUFFER_FLUSH_MS = 50
+
+stop_buffer_flush_timer = function()
+	local timer = buffer_flush_timer
+	buffer_flush_timer = nil
+	if timer and not timer:is_closing() then
+		pcall(timer.stop, timer)
+		pcall(timer.close, timer)
+	end
+end
 
 local function flush_buffer_updates()
 	if #pending_buffer_updates == 0 then
@@ -730,8 +745,27 @@ local function flush_buffer_updates()
 	end)
 end
 
--- Start the repeating timer
-buffer_flush_timer:start(BUFFER_FLUSH_MS, BUFFER_FLUSH_MS, flush_buffer_updates)
+local function schedule_buffer_flush()
+	if buffer_flush_timer and not buffer_flush_timer:is_closing() then
+		return
+	end
+	local timer = vim.loop.new_timer()
+	if not timer then
+		flush_buffer_updates()
+		return
+	end
+	buffer_flush_timer = timer
+	timer:start(BUFFER_FLUSH_MS, 0, function()
+		if buffer_flush_timer == timer then
+			buffer_flush_timer = nil
+		end
+		if not timer:is_closing() then
+			timer:stop()
+			timer:close()
+		end
+		flush_buffer_updates()
+	end)
+end
 
  -- batched streaming with \r support; only append non-empty visible content
  function M.append_stream(seq, text, is_error)
@@ -794,7 +828,16 @@ buffer_flush_timer:start(BUFFER_FLUSH_MS, BUFFER_FLUSH_MS, flush_buffer_updates)
 					})
 			 end
 		end
+
+		if #pending_buffer_updates > 0 then
+			schedule_buffer_flush()
+		end
  end
+
+function M.stop_flush_timer()
+	pending_buffer_updates = {}
+	stop_buffer_flush_timer()
+end
 
 
 function M.append(seq, text, is_error)

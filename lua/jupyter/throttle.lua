@@ -50,8 +50,8 @@ local function ensure_timers()
 	end
 end
 
--- Initialize timers
-ensure_timers()
+-- Timers are created lazily by tick()/push(), so merely loading Jupyter does
+-- not leave repeating handles active for the lifetime of Neovim.
 
 ---------------------------------------------------------------------------
 function M.tick()

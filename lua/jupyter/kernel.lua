@@ -702,6 +702,14 @@ function M.is_running()
 end
 
 function M.stop()
+	-- Timers can exist even when no bridge was started (the modules are loaded
+	-- for every Python buffer), so always clean them up before returning.
+	if throttle and type(throttle.stop) == "function" then
+		pcall(throttle.stop)
+	end
+	if out and type(out.stop_flush_timer) == "function" then
+		pcall(out.stop_flush_timer)
+	end
 	if not M.bridge then
 		return
 	end
@@ -726,11 +734,6 @@ function M.stop()
 	utils.reset_once_cells()
 	_inline_rl:reset()
 	ui.clear_all_signs()
-	-- Clean up throttle timers if throttle module is loaded
-	local ok, throttle = pcall(require, "jupyter.throttle")
-	if ok and throttle and type(throttle.stop) == "function" then
-		pcall(throttle.stop)
-	end
 end
 
 function M.interrupt(opts)
