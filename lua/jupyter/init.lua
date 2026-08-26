@@ -8,16 +8,19 @@ local run_state = require("jupyter.state")
 local dap = require("jupyter.dap")
 local M = {}
 
-vim.g.jupyter_outbuf_hl = ui.highlights.output_window
+vim.g.jupyter_outbuf_hl = vim.g.jupyter_outbuf_hl or ui.highlights.output_window
 
 local DEFAULT_OUTBUF_HL = { link = "Folded", default = true }
 
 local function highlight_is_defined(name)
-	local ok, hl = pcall(vim.api.nvim_get_hl, 0, { name = name, link = false })
-	if not ok then
-		return vim.fn.hlexists(name) == 1
+	if not name or name == "" then
+		return false
 	end
-	return next(hl) ~= nil
+	local ok, hl = pcall(vim.api.nvim_get_hl, 0, { name = name, link = false })
+	if ok and hl and next(hl) ~= nil then
+		return true
+	end
+	return vim.fn.hlexists(name) == 1
 end
 
 -- Define both GUI and cterm background so it works with/without termguicolors
@@ -31,7 +34,7 @@ local function define_outbuf_hl(force)
 	vim.api.nvim_set_hl(0, ui.highlights.output_window, DEFAULT_OUTBUF_HL)
 end
 
-define_outbuf_hl(true)
+define_outbuf_hl(false)
 vim.api.nvim_create_autocmd("ColorScheme", {
 	callback = function()
 		define_outbuf_hl()

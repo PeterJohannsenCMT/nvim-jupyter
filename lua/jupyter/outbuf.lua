@@ -47,6 +47,18 @@ local function get_pager_cfg()
 end
 
 local M = {}
+
+local function highlight_is_defined(name)
+	if not name or name == "" then
+		return false
+	end
+	local ok, hl = pcall(api.nvim_get_hl, 0, { name = name, link = false })
+	if ok and hl and next(hl) ~= nil then
+		return true
+	end
+	return vim.fn.hlexists(name) == 1
+end
+
 local out_bufnr, out_winid = nil, nil
 local pager_bufnr, pager_winid = nil, nil
 local close_pager_window
@@ -445,10 +457,12 @@ local OUT_PAD_NS = api.nvim_create_namespace("outbuf_pad")
 local CELL_MARKER_NS = api.nvim_create_namespace("jupyter_cell_marker")
 
 -- Define highlight for cell markers shown inside the output split.
-vim.api.nvim_set_hl(0, HIGHLIGHTS.output_cell_marker, {
-	link = "Comment",
-	default = true, -- Allow users to override
-})
+if not highlight_is_defined(HIGHLIGHTS.output_cell_marker) then
+	vim.api.nvim_set_hl(0, HIGHLIGHTS.output_cell_marker, {
+		link = "Comment",
+		default = true, -- Allow users to override
+	})
+end
 
 -- Throttle scrolling to prevent EMFILE during rapid output
 local last_scroll = 0

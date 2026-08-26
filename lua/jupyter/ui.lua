@@ -57,6 +57,9 @@ local function hl_bg(name)
 end
 
 local function define_hl(name, opts, legacy)
+	if highlight_is_defined(name) then
+		return
+	end
 	if legacy and highlight_is_defined(legacy) then
 		api.nvim_set_hl(0, name, { link = legacy, default = true })
 		return
@@ -80,7 +83,9 @@ local function define_plugin_highlights()
 
 	-- Backwards-compatible aliases for users who already customized the old names.
 	for legacy, canonical in pairs(LEGACY_HIGHLIGHTS) do
-		api.nvim_set_hl(0, legacy, { link = canonical, default = true })
+		if not highlight_is_defined(legacy) then
+			api.nvim_set_hl(0, legacy, { link = canonical, default = true })
+		end
 	end
 end
 
@@ -804,7 +809,7 @@ local function resolve_metadata_hl_group(ui_cfg)
 		return hl
 	end
 
-	if type(hl) == "table" then
+	if type(hl) == "table" and not highlight_is_defined(HIGHLIGHTS.metadata) then
 		local opts = {}
 		for k, v in pairs(DEFAULT_METADATA_HL) do
 			opts[k] = v
@@ -812,6 +817,7 @@ local function resolve_metadata_hl_group(ui_cfg)
 		for k, v in pairs(hl) do
 			opts[k] = v
 		end
+		opts.default = true
 		api.nvim_set_hl(0, HIGHLIGHTS.metadata, opts)
 	end
 	return HIGHLIGHTS.metadata
