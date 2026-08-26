@@ -8,7 +8,7 @@ local run_state = require("jupyter.state")
 local dap = require("jupyter.dap")
 local M = {}
 
-vim.g.jupyter_outbuf_hl = "JupyterOutput"
+vim.g.jupyter_outbuf_hl = ui.highlights.output_window
 
 local DEFAULT_OUTBUF_HL = { link = "Folded", default = true }
 
@@ -25,10 +25,10 @@ local function define_outbuf_hl(force)
 	if vim.g.jupyter_outbuf_user_override then
 		return
 	end
-	if not force and highlight_is_defined("JupyterOutput") then
+	if not force and highlight_is_defined(ui.highlights.output_window) then
 		return
 	end
-	vim.api.nvim_set_hl(0, "JupyterOutput", DEFAULT_OUTBUF_HL)
+	vim.api.nvim_set_hl(0, ui.highlights.output_window, DEFAULT_OUTBUF_HL)
 end
 
 define_outbuf_hl(true)
@@ -526,7 +526,7 @@ vim.api.nvim_create_autocmd({ "BufWinEnter", "WinEnter" }, {
 			-- Use same config resolution as outbuf.lua
 			local function get_out_cfg()
 				local ok, cfg = pcall(require, "jupyter.config")
-				local defaults = { highlight = "JupyterOutput" }
+				local defaults = { highlight = ui.highlights.output_window }
 				local out_cfg = (ok and type(cfg) == "table" and cfg.out) or {}
 				local merged = {}
 				for k, v in pairs(defaults) do
@@ -537,7 +537,7 @@ vim.api.nvim_create_autocmd({ "BufWinEnter", "WinEnter" }, {
 				end
 				return merged
 			end
-			local grp = (get_out_cfg().highlight or vim.g.jupyter_outbuf_hl or "JupyterOutput")
+			local grp = (get_out_cfg().highlight or vim.g.jupyter_outbuf_hl or ui.highlights.output_window)
 			vim.wo[win].winhighlight = ("Normal:%s,NormalNC:%s,EndOfBuffer:%s,SignColumn:%s,LineNr:%s,FoldColumn:%s,CursorLine:%s,CursorLineNr:%s"):format(
 				grp,
 				grp,

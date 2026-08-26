@@ -183,6 +183,7 @@ require("jupyter").setup({
     open_on_run = true,      -- auto-open on first execution
     auto_scroll = true,      -- scroll to latest output
     focus_on_open = false,   -- don't steal focus when opening
+    highlight = "JupyterOutputWindow", -- highlight group for the output pane
   },
 
   -- IPython pager output (e.g. function? / function??)
@@ -236,8 +237,8 @@ require("jupyter").setup({
     maxlen    = 300,             -- max characters per line before truncation
     strip_ansi = true,           -- strip ANSI escape codes before display
     prefix    = " ⟶ ",          -- prefix for the first output line
-    hl_normal = "MoltenOutputWin", -- highlight group for normal output
-    hl_error  = "DiagnosticError", -- highlight group for error output
+    hl_normal = "JupyterInlineOutput", -- highlight group for normal output
+    hl_error  = "JupyterInlineError",  -- highlight group for error output
   },
 })
 ```
@@ -293,9 +294,18 @@ print("This is a sub-cell")
 - Files without any markers will show a warning
 
 **Highlight Groups:**
-- `CellLineBackground` / `CellLineBG` control the header text and borders for parent `#%%` markers
-- `CellLineSubBackground` / `CellLineSubBG` apply to `##%%` subcells (Default-linked to the parent groups so you can override them independently)
-- Metadata comments in the form `#:: something ::` can be highlighted with virtual text when `ui.highlight_metadata` is `true`; customize the colors with `ui.metadata_hl` (table with `fg`/`bg`) or set it to a highlight group name.
+- `JupyterCellHeader`: parent `#%%` marker/header line
+- `JupyterCellBorder`: virtual border lines around parent cells
+- `JupyterSubCellHeader`: `##%%` subcell marker/header line
+- `JupyterSubCellBorder`: virtual border lines around subcells
+- `JupyterOutputWindow`: split output window background
+- `JupyterOutputCellMarker`: cell separators inside the output window
+- `JupyterMetadata`: virtual text for `#:: metadata ::` comments (or set `ui.metadata_hl` to another group/colors)
+- `JupyterInlineOutput` / `JupyterInlineError`: inline output virtual lines
+- `JupyterCellRunningSign`: running spinner sign in the gutter
+- `JupyterCellMarkerSign`: gutter marker sign used by cell UI helpers
+
+Old names (`CellLineBackground`, `CellLineBG`, `CellLineSubBackground`, `CellLineSubBG`, `CellLineFG`, `JupyterOutput`, `JupyterCellMarker`, `JupyterRunning`) remain as backwards-compatible aliases.
 
 ## 🔍 Output Display
 

@@ -1,5 +1,6 @@
 local api = vim.api
 local ui = require("jupyter.ui")
+local HIGHLIGHTS = ui.highlights
 local filetype = require("jupyter.filetype")
 local cfg_out = require("jupyter.config").out or {}
 
@@ -175,7 +176,7 @@ local function ensure_buf()
 
 			if outbuf_win and vim.b[out_bufnr].is_outbuf then
 				local cfg = get_out_cfg()
-				local grp = (cfg.highlight or vim.g.jupyter_outbuf_hl or "JupyterOutput")
+				local grp = (cfg.highlight or vim.g.jupyter_outbuf_hl or HIGHLIGHTS.output_window)
 				vim.wo[outbuf_win].winhighlight = ("Normal:%s,NormalNC:%s,EndOfBuffer:%s,SignColumn:%s,LineNr:%s,FoldColumn:%s,CursorLine:%s,CursorLineNr:%s"):format(
 					grp,
 					grp,
@@ -302,7 +303,7 @@ local function open_window()
 	api.nvim_win_set_buf(out_winid, buf)
 
 	local cfg = get_out_cfg()
-	local grp = (cfg.highlight or vim.g.jupyter_outbuf_hl or "JupyterOutput")
+	local grp = (cfg.highlight or vim.g.jupyter_outbuf_hl or HIGHLIGHTS.output_window)
 	vim.wo[out_winid].winhighlight = ("Normal:%s,NormalNC:%s,EndOfBuffer:%s,SignColumn:%s,LineNr:%s,FoldColumn:%s,CursorLine:%s,CursorLineNr:%s"):format(
 		grp,
 		grp,
@@ -394,7 +395,7 @@ local function maintain_outbuf_highlight()
 		for _, win in ipairs(api.nvim_list_wins()) do
 			if api.nvim_win_is_valid(win) and api.nvim_win_get_buf(win) == out_bufnr then
 				local cfg = get_out_cfg()
-				local grp = (cfg.highlight or vim.g.jupyter_outbuf_hl or "JupyterOutput")
+				local grp = (cfg.highlight or vim.g.jupyter_outbuf_hl or HIGHLIGHTS.output_window)
 				vim.wo[win].winhighlight = ("Normal:%s,NormalNC:%s,EndOfBuffer:%s,SignColumn:%s,LineNr:%s,FoldColumn:%s,CursorLine:%s,CursorLineNr:%s"):format(
 					grp,
 					grp,
@@ -443,8 +444,8 @@ end
 local OUT_PAD_NS = api.nvim_create_namespace("outbuf_pad")
 local CELL_MARKER_NS = api.nvim_create_namespace("jupyter_cell_marker")
 
--- Define highlight for cell markers
-vim.api.nvim_set_hl(0, "JupyterCellMarker", {
+-- Define highlight for cell markers shown inside the output split.
+vim.api.nvim_set_hl(0, HIGHLIGHTS.output_cell_marker, {
 	link = "Comment",
 	default = true, -- Allow users to override
 })
@@ -602,7 +603,7 @@ local function ensure_started(seq)
 	pcall(api.nvim_buf_set_extmark, buf, CELL_MARKER_NS, marker_line, 0, {
 		end_line = marker_line,
 		end_col = #marker,
-		hl_group = "JupyterCellMarker",
+		hl_group = HIGHLIGHTS.output_cell_marker,
 		priority = 200, -- Higher priority to override syntax highlighting
 		hl_mode = "replace", -- Replace existing highlights
 	})
@@ -731,7 +732,7 @@ local function flush_buffer_updates()
 					pcall(api.nvim_buf_set_extmark, buf, CELL_MARKER_NS, st.marker_line, 0, {
 						end_line = st.marker_line,
 						end_col = #st.marker_text,
-						hl_group = "JupyterCellMarker",
+						hl_group = HIGHLIGHTS.output_cell_marker,
 						priority = 200,
 						hl_mode = "replace",
 					})

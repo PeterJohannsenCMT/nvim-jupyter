@@ -11,7 +11,7 @@ local M = {
 		open_on_run = true, -- auto-open pane on first execution
 		auto_scroll = true,
 		focus_on_open = false,
-		highlight = vim.g.jupyter_outbuf_hl or "JupyterOutput",
+		highlight = vim.g.jupyter_outbuf_hl or "JupyterOutputWindow",
 	},
 	pager = {
 		split = "right", -- where to show pager output
@@ -48,6 +48,8 @@ local M = {
 	},
 	inline = {
 		enabled = false, -- opt-in; rapid output can cause EMFILE errors
+		hl_normal = "JupyterInlineOutput",
+		hl_error = "JupyterInlineError",
 	},
 }
 return M

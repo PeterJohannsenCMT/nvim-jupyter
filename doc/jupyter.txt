@@ -272,6 +272,7 @@ passing options to the setup function: >
         open_on_run = true,      -- auto-open on first execution
         auto_scroll = true,      -- scroll to latest output
         focus_on_open = false,   -- don't steal focus when opening
+        highlight = "JupyterOutputWindow", -- output pane highlight group
       },
       
       -- Interrupt behavior
@@ -381,12 +382,21 @@ Cell Behavior:
 - Files without any markers will show a warning when trying to run cells
 
 Highlight groups:~
-- `CellLineBackground` / `CellLineBG` style parent `#%%` markers
-- `CellLineSubBackground` / `CellLineSubBG` style `##%%` subcells (linked to
-  the parent groups by default so they can be overridden independently)
-- Metadata comments written as `#:: something ::` are rendered with virtual
-  text when `ui.highlight_metadata` is enabled; customize the colors via
-  `ui.metadata_hl` (a table with `fg` / `bg` or a highlight group name).
+- `JupyterCellHeader`: parent `#%%` marker/header line
+- `JupyterCellBorder`: virtual border lines around parent cells
+- `JupyterSubCellHeader`: `##%%` subcell marker/header line
+- `JupyterSubCellBorder`: virtual border lines around subcells
+- `JupyterOutputWindow`: split output window background
+- `JupyterOutputCellMarker`: cell separators inside the output window
+- `JupyterMetadata`: virtual text for `#:: metadata ::` comments (or set
+  `ui.metadata_hl` to another group/colors)
+- `JupyterInlineOutput` / `JupyterInlineError`: inline output virtual lines
+- `JupyterCellRunningSign`: running spinner sign in the gutter
+- `JupyterCellMarkerSign`: gutter marker sign used by cell UI helpers
+
+Old names (`CellLineBackground`, `CellLineBG`, `CellLineSubBackground`,
+`CellLineSubBG`, `CellLineFG`, `JupyterOutput`, `JupyterCellMarker`,
+`JupyterRunning`) remain as backwards-compatible aliases.
 
 Example file structure: >
     #%% Import libraries

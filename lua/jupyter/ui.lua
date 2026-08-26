@@ -24,45 +24,69 @@ local function highlight_is_defined(name)
 	return vim.fn.hlexists(name) == 1
 end
 
-local CELL_HL_DEFAULTS = {
-	{ name = "CellLineBackground", link = "StatusLine" },
-	{ name = "CellLineBG" },
-	{ name = "CellLineFG", link = "Normal" },
-	{ name = "JupyterOutput", link = "NormalNC" },
-	{ name = "CellLineSubBackground", link = "StatusLineNC" },
-	{ name = "CellLineSubBG" },
+local HIGHLIGHTS = {
+	cell_header = "JupyterCellHeader",
+	cell_border = "JupyterCellBorder",
+	cell_marker_sign = "JupyterCellMarkerSign",
+	subcell_header = "JupyterSubCellHeader",
+	subcell_border = "JupyterSubCellBorder",
+	output_window = "JupyterOutputWindow",
+	output_cell_marker = "JupyterOutputCellMarker",
+	metadata = "JupyterMetadata",
+	inline_output = "JupyterInlineOutput",
+	inline_error = "JupyterInlineError",
+	running_sign = "JupyterCellRunningSign",
 }
 
-local function define_cell_highlights()
-	for _, def in ipairs(CELL_HL_DEFAULTS) do
-		if def.name == "CellLineBG" then
-			-- Special case: set fg to bg of Folded (cell background)
-			local clb_hl = vim.api.nvim_get_hl(0, { name = "StatusLine", link = false })
-			local bg_color = clb_hl and clb_hl.bg
-			if bg_color then
-				api.nvim_set_hl(0, def.name, { fg = bg_color, default = true })
-			else
-				api.nvim_set_hl(0, def.name, { link = "Comment", default = true })
-			end
-		elseif def.name and def.link then
-			api.nvim_set_hl(0, def.name, { link = def.link, default = true })
-		end
-		if def.name == "CellLineSubBG" then
-			-- Special case: set fg to bg of Folded (cell background)
-			local clb_hl = vim.api.nvim_get_hl(0, { name = "StatusLineNC", link = false })
-			local bg_color = clb_hl and clb_hl.bg
-			if bg_color then
-				api.nvim_set_hl(0, def.name, { fg = bg_color, default = true })
-			end
-		elseif def.name and def.link then
-			api.nvim_set_hl(0, def.name, { link = def.link, default = true })
-		end
+M.highlights = HIGHLIGHTS
+
+local LEGACY_HIGHLIGHTS = {
+	CellLineBackground = HIGHLIGHTS.cell_header,
+	CellLineBG = HIGHLIGHTS.cell_border,
+	CellLineFG = HIGHLIGHTS.cell_marker_sign,
+	CellLineSubBackground = HIGHLIGHTS.subcell_header,
+	CellLineSubBG = HIGHLIGHTS.subcell_border,
+	JupyterOutput = HIGHLIGHTS.output_window,
+	JupyterCellMarker = HIGHLIGHTS.output_cell_marker,
+	JupyterRunning = HIGHLIGHTS.running_sign,
+}
+
+local function hl_bg(name)
+	local ok, hl = pcall(api.nvim_get_hl, 0, { name = name, link = false })
+	return ok and hl and hl.bg or nil
+end
+
+local function define_hl(name, opts, legacy)
+	if legacy and highlight_is_defined(legacy) then
+		api.nvim_set_hl(0, name, { link = legacy, default = true })
+		return
+	end
+	opts.default = true
+	api.nvim_set_hl(0, name, opts)
+end
+
+local function define_plugin_highlights()
+	define_hl(HIGHLIGHTS.cell_header, { link = "StatusLine" }, "CellLineBackground")
+	define_hl(HIGHLIGHTS.cell_border, { fg = hl_bg("StatusLine") or nil, link = hl_bg("StatusLine") and nil or "Comment" }, "CellLineBG")
+	define_hl(HIGHLIGHTS.cell_marker_sign, { link = "Normal" }, "CellLineFG")
+	define_hl(HIGHLIGHTS.subcell_header, { link = "StatusLineNC" }, "CellLineSubBackground")
+	define_hl(HIGHLIGHTS.subcell_border, { fg = hl_bg("StatusLineNC") or nil, link = hl_bg("StatusLineNC") and nil or "Comment" }, "CellLineSubBG")
+	define_hl(HIGHLIGHTS.output_window, { link = "Folded" }, "JupyterOutput")
+	define_hl(HIGHLIGHTS.output_cell_marker, { link = "Comment" }, "JupyterCellMarker")
+	define_hl(HIGHLIGHTS.metadata, { fg = "#d8dee9", bg = "#434c5e" })
+	define_hl(HIGHLIGHTS.inline_output, { link = "Comment" })
+	define_hl(HIGHLIGHTS.inline_error, { link = "DiagnosticError" })
+	define_hl(HIGHLIGHTS.running_sign, { link = "DiagnosticWarn" }, "JupyterRunning")
+
+	-- Backwards-compatible aliases for users who already customized the old names.
+	for legacy, canonical in pairs(LEGACY_HIGHLIGHTS) do
+		api.nvim_set_hl(0, legacy, { link = canonical, default = true })
 	end
 end
 
-define_cell_highlights()
+define_plugin_highlights()
 api.nvim_create_autocmd("ColorScheme", {
-	callback = define_cell_highlights,
+	callback = define_plugin_highlights,
 })
 
 -- Per-buffer state
@@ -92,8 +116,8 @@ local function get_cfg()
 		maxlen = 300,
 		max_lines = 20,
 		prefix = " ⟶ ",
-		hl_normal = "MoltenOutputWin",
-		hl_error = "DiagnosticError",
+		hl_normal = HIGHLIGHTS.inline_output,
+		hl_error = HIGHLIGHTS.inline_error,
 	}
 	local ok, cfg = pcall(require, "jupyter.config")
 	if ok and type(cfg) == "table" and type(cfg.inline) == "table" then
@@ -412,7 +436,7 @@ local function step_anim()
 						api.nvim_buf_set_extmark(bufnr, ns_exec, mark[1], 0, {
 							id = info.mark_id,
 							sign_text = symbol,
-							sign_hl_group = "JupyterRunning",
+							sign_hl_group = HIGHLIGHTS.running_sign,
 							priority = 10,
 						})
 					end
@@ -432,7 +456,7 @@ end
 
 local function get_sign_appearance(kind)
 	if kind == "run" then
-		return SPINNER_FRAMES[1], "JupyterRunning"
+		return SPINNER_FRAMES[1], HIGHLIGHTS.running_sign
 	elseif kind == "ok" then
 		return "✓", "DiagnosticOk"
 	elseif kind == "err_line" then
@@ -723,12 +747,12 @@ local ns_metadata = vim.api.nvim_create_namespace("jupyter-metadata")
 
 local CELL_HIGHLIGHT_SLOTS = {
 	header = {
-		parent = "CellLineBackground",
-		sub = "CellLineSubBackground",
+		parent = HIGHLIGHTS.cell_header,
+		sub = HIGHLIGHTS.subcell_header,
 	},
 	border = {
-		parent = "CellLineBG",
-		sub = "CellLineSubBG",
+		parent = HIGHLIGHTS.cell_border,
+		sub = HIGHLIGHTS.subcell_border,
 	},
 }
 
@@ -780,19 +804,17 @@ local function resolve_metadata_hl_group(ui_cfg)
 		return hl
 	end
 
-	-- local opts = {}
-	-- for k, v in pairs(DEFAULT_METADATA_HL) do
-	-- 	opts[k] = v
-	-- end
-	-- if type(hl) == "table" then
-	-- 	for k, v in pairs(hl) do
-	-- 		opts[k] = v
-	-- 	end
-	-- end
-	--
-	-- opts.default = false
-	local group = "JupyterMetadata"
-	return group
+	if type(hl) == "table" then
+		local opts = {}
+		for k, v in pairs(DEFAULT_METADATA_HL) do
+			opts[k] = v
+		end
+		for k, v in pairs(hl) do
+			opts[k] = v
+		end
+		api.nvim_set_hl(0, HIGHLIGHTS.metadata, opts)
+	end
+	return HIGHLIGHTS.metadata
 end
 
 local METADATA_PATTERN = "^%s*#%s*::%s*(.-)%s*::%s*$"
@@ -830,17 +852,14 @@ local function get_metadata_lines(bufnr)
 	return items
 end
 
-local function replace_with_mysign(bufnr, lnum)
-	-- 1) remove ANY of {JupyterRun,JupyterOK,JupyterErr,MySign} on that line
-	--    (because they’re all in the same group)
+local function replace_with_cell_marker_sign(bufnr, lnum)
+	-- Keep exactly one cell-marker sign on this line.
 	pcall(vim.fn.sign_unplace, GROUP, { buffer = bufnr, lnum = lnum })
-
-	-- 2) place exactly one MySign with a stable id for this line
-	pcall(vim.fn.sign_place, lnum, GROUP, "MySign", bufnr, { lnum = lnum, priority = 10000 })
+	pcall(vim.fn.sign_place, lnum, GROUP, "JupyterCellMarkerSign", bufnr, { lnum = lnum, priority = 10000 })
 end
 
 function M.highlight_cells()
-	pcall(vim.fn.sign_define, "MySign", { text = "●", texthl = "CellLineFG" })
+	pcall(vim.fn.sign_define, "JupyterCellMarkerSign", { text = "●", texthl = HIGHLIGHTS.cell_marker_sign })
 	local bufnr = vim.api.nvim_get_current_buf()
 	local winid = vim.api.nvim_get_current_win()
 	local width = vim.api.nvim_win_get_width(winid)
@@ -901,8 +920,8 @@ function M.highlight_cells()
 
 			local trimmed = vim.trim(marker.text or "")
 			local full_display = trimmed == "" and label or (label .. " " .. trimmed)
-			local header_hl = get_cell_highlight(marker.type, "header") or "CellLineBackground"
-			local border_hl = get_cell_highlight(marker.type, "border") or "CellLineBG"
+			local header_hl = get_cell_highlight(marker.type, "header") or HIGHLIGHTS.cell_header
+			local border_hl = get_cell_highlight(marker.type, "border") or HIGHLIGHTS.cell_border
 
 			local text_width = vim.fn.strdisplaywidth(full_display)
 			local padding_len = math.max(0, width - text_width)
