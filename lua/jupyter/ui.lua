@@ -465,9 +465,9 @@ local function get_sign_appearance(kind)
 	elseif kind == "ok" then
 		return "✓", "DiagnosticOk"
 	elseif kind == "err_line" then
-		return "->", "DiagnosticError"
+		return ">", "DiagnosticError"
 	else -- "err"
-		return "×", "DiagnosticError"
+		return "󰯉", "DiagnosticError"
 	end
 end
 
@@ -919,9 +919,9 @@ function M.highlight_cells()
 			local label
 			if marker.type == "sub" then
 				local letter = marker.letter or utils.subcell_letter(marker.sub_index)
-				label = string.format("Cell %d%s:", marker.parent_index or idx, letter or "")
+				label = string.format("<> Cell %d%s:", marker.parent_index or idx, letter or "")
 			else
-				label = string.format("Cell %d:", marker.parent_index or idx)
+				label = string.format("<> Cell %d:", marker.parent_index or idx)
 			end
 
 			local trimmed = vim.trim(marker.text or "")
