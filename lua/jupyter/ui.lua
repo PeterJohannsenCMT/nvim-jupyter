@@ -94,6 +94,18 @@ define_plugin_highlights()
 api.nvim_create_autocmd("ColorScheme", {
 	callback = define_plugin_highlights,
 })
+api.nvim_create_autocmd("OptionSet", {
+	pattern = "colorcolumn",
+	callback = function()
+		vim.schedule(function()
+			local bufnr = api.nvim_get_current_buf()
+			local ft = vim.bo[bufnr].filetype
+			if (ft == "python" or ft == "julia") and type(M.highlight_cells) == "function" then
+				M.highlight_cells()
+			end
+		end)
+	end,
+})
 
 -- Per-buffer state
 local inline_mark = {} -- [bufnr][row] = extmark_id
@@ -824,6 +836,145 @@ local function resolve_metadata_hl_group(ui_cfg)
 	return HIGHLIGHTS.metadata
 end
 
+local function get_win_colorcolumn(winid)
+	local ok, value = pcall(api.nvim_get_option_value, "colorcolumn", { win = winid })
+	if ok then
+		return value or ""
+	end
+	ok, value = pcall(function()
+		return vim.wo[winid].colorcolumn
+	end)
+	return ok and (value or "") or ""
+end
+
+local function get_buf_textwidth(bufnr)
+	local ok, value = pcall(api.nvim_get_option_value, "textwidth", { buf = bufnr })
+	if ok then
+		return tonumber(value) or 0
+	end
+	ok, value = pcall(function()
+		return vim.bo[bufnr].textwidth
+	end)
+	return ok and (tonumber(value) or 0) or 0
+end
+
+local function get_color_columns(bufnr, winid, width)
+	local colorcolumn = get_win_colorcolumn(winid)
+	if colorcolumn == "" then
+		return nil
+	end
+
+	local columns = {}
+	local seen = {}
+	local textwidth = nil
+	for item in tostring(colorcolumn):gmatch("[^,]+") do
+		item = vim.trim(item)
+		local column = nil
+		if item:match("^[+-]%d+$") then
+			textwidth = textwidth or get_buf_textwidth(bufnr)
+			if textwidth > 0 then
+				column = textwidth + tonumber(item)
+			end
+		elseif item:match("^%d+$") then
+			column = tonumber(item)
+		end
+
+		if column and column > 0 and column <= width and not seen[column] then
+			seen[column] = true
+			columns[#columns + 1] = column
+		end
+	end
+
+	if #columns == 0 then
+		return nil
+	end
+	table.sort(columns)
+	return columns
+end
+
+local function make_border_virt_line(char, width, border_hl, color_columns)
+	if width <= 0 or not color_columns or #color_columns == 0 then
+		return { { string.rep(char, math.max(width, 0)), border_hl } }
+	end
+
+	local chunks = {}
+	local current_column = 1
+	local colorcolumn_hl = { border_hl, "ColorColumn" }
+	for _, column in ipairs(color_columns) do
+		if column > current_column then
+			chunks[#chunks + 1] = { string.rep(char, column - current_column), border_hl }
+		end
+		chunks[#chunks + 1] = { char, colorcolumn_hl }
+		current_column = column + 1
+	end
+	if current_column <= width then
+		chunks[#chunks + 1] = { string.rep(char, width - current_column + 1), border_hl }
+	end
+	return chunks
+end
+
+local function append_virt_text_chunk(chunks, text, hl)
+	if text == "" then
+		return
+	end
+	local last = chunks[#chunks]
+	if last and last[2] == hl then
+		last[1] = last[1] .. text
+	else
+		chunks[#chunks + 1] = { text, hl }
+	end
+end
+
+local function has_colorcolumn_between(color_columns, start_column, end_column)
+	if not color_columns then
+		return false
+	end
+	for _, column in ipairs(color_columns) do
+		if column > end_column then
+			return false
+		end
+		if column >= start_column then
+			return true
+		end
+	end
+	return false
+end
+
+local function make_cell_header_virt_text(text, width, header_hl, color_columns)
+	if width <= 0 or not color_columns or #color_columns == 0 then
+		local padding_len = math.max(0, width - vim.fn.strdisplaywidth(text))
+		return { { text .. string.rep(" ", padding_len), header_hl } }
+	end
+
+	local chunks = {}
+	local current_column = 1
+	local colorcolumn_hl = { header_hl, "ColorColumn" }
+	local char_count = vim.fn.strchars(text)
+
+	for idx = 0, char_count - 1 do
+		local char = vim.fn.strcharpart(text, idx, 1)
+		local char_width = math.max(vim.fn.strdisplaywidth(char), 1)
+		local chunk_hl = has_colorcolumn_between(color_columns, current_column, current_column + char_width - 1)
+				and colorcolumn_hl
+			or header_hl
+		append_virt_text_chunk(chunks, char, chunk_hl)
+		current_column = current_column + char_width
+	end
+
+	for _, column in ipairs(color_columns) do
+		if column >= current_column and column <= width then
+			append_virt_text_chunk(chunks, string.rep(" ", column - current_column), header_hl)
+			append_virt_text_chunk(chunks, " ", colorcolumn_hl)
+			current_column = column + 1
+		end
+	end
+	if current_column <= width then
+		append_virt_text_chunk(chunks, string.rep(" ", width - current_column + 1), header_hl)
+	end
+
+	return chunks
+end
+
 local METADATA_PATTERN = "^%s*#%s*::%s*(.-)%s*::%s*$"
 local metadata_cache = {}
 
@@ -870,6 +1021,7 @@ function M.highlight_cells()
 	local bufnr = vim.api.nvim_get_current_buf()
 	local winid = vim.api.nvim_get_current_win()
 	local width = vim.api.nvim_win_get_width(winid)
+	local color_columns = get_color_columns(bufnr, winid, width)
 	vim.api.nvim_buf_clear_namespace(0, ns, 0, -1)
 	local cursor_line = vim.api.nvim_win_get_cursor(winid)[1] - 1
 
@@ -930,17 +1082,13 @@ function M.highlight_cells()
 			local header_hl = get_cell_highlight(marker.type, "header") or HIGHLIGHTS.cell_header
 			local border_hl = get_cell_highlight(marker.type, "border") or HIGHLIGHTS.cell_border
 
-			local text_width = vim.fn.strdisplaywidth(full_display)
-			local padding_len = math.max(0, width - text_width)
-			local padding = string.rep(" ", padding_len)
-			local padding_top = string.rep("▔", width)
-			local padding_bottom = string.rep("▁", width)
+			local header_virt_text = make_cell_header_virt_text(full_display, width, header_hl, color_columns)
+			local padding_top = make_border_virt_line("▔", width, border_hl, color_columns)
+			local padding_bottom = make_border_virt_line("▁", width, border_hl, color_columns)
 
 			if row ~= cursor_line and not is_outbuf then
 				vim.api.nvim_buf_set_extmark(bufnr, ns_sign, row, 0, {
-					virt_text = {
-						{ full_display .. padding, header_hl },
-					},
+					virt_text = header_virt_text,
 					virt_text_pos = "overlay",
 					hl_mode = "combine",
 				})
@@ -964,11 +1112,11 @@ function M.highlight_cells()
 
 				if has_content then
 					vim.api.nvim_buf_set_extmark(bufnr, ns, content_start, 0, {
-						virt_lines = { { { padding_top, border_hl } } },
+						virt_lines = { padding_top },
 						virt_lines_above = true,
 					})
 					vim.api.nvim_buf_set_extmark(bufnr, ns, content_end, 0, {
-						virt_lines = { { { padding_bottom, border_hl } } },
+						virt_lines = { padding_bottom },
 						virt_lines_above = false,
 						priority = 100, -- below inline output (priority=200) so border appears after it
 					})
