@@ -2,7 +2,7 @@
 
 A modern Neovim plugin that enables seamless interaction with Jupyter kernels directly from your editor. Execute Python code cells and maintain a live connection to your Jupyter kernel—all without leaving Neovim.
 
-## ✨ Features
+## Features
 
 - **Live Jupyter Integration**: Connect to and control Jupyter kernels from within Neovim
 - **Cell-based Execution**: Support for `#%%` cell markers (Jupyter/VSCode style)
@@ -14,7 +14,7 @@ A modern Neovim plugin that enables seamless interaction with Jupyter kernels di
 - **Non-blocking**: Asynchronous execution keeps Neovim responsive
 - **IPython niceties**: Inline `?` / `??` doc lookups open in a pager split, and `%` line magics are expanded automatically
 
-## 📋 Requirements
+## Requirements
 
 - Neovim 0.8+
 - Python 3.7+
@@ -31,13 +31,13 @@ dependencies:
   - ipykernel=6.30
 ```
 
-Create the environment using 
+Create the environment using
 
 ```bash
 conda create -f env.yaml
 ```
 
-## 📦 Installation
+## Installation
 
 ### Using [lazy.nvim](https://github.com/folke/lazy.nvim)
 
@@ -53,7 +53,7 @@ conda create -f env.yaml
 }
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
 1. **Create a Python file** with cell markers:
    ```python
@@ -88,7 +88,7 @@ conda create -f env.yaml
    - `<leader>jo` toggles the output-buffer, which prints outputs (and full error messages, with ANSI-colours.
    - Signs in the gutter indicate execution status
 
-## ⌨️ Default Keybindings
+## Default Keybindings
 
 The plugin automatically sets up these keybindings for Python files:
 
@@ -109,7 +109,7 @@ The plugin automatically sets up these keybindings for Python files:
 | `<leader>jc` | Normal | `:JupyterClearAll` | Clear all virtual text |
 | `<leader>jt` | Normal | `:JupyterRunCellAdvance toggle` | Toggle whether smart run advances to next cell |
 
-## 🎛️ Commands
+## Commands
 
 ### Kernel Management
 - `:JupyterStart` - Start a new Jupyter kernel
@@ -152,7 +152,7 @@ The plugin automatically sets up these keybindings for Python files:
 ### Utility
 - `:JupyterUpdateSigns` - Recompute gutter sign positions (useful after manually opening/closing folds)
 
-## ⚙️ Configuration
+## Configuration
 
 The plugin works out of the box, but you can customize it:
 
@@ -160,10 +160,10 @@ The plugin works out of the box, but you can customize it:
 require("jupyter").setup({
   -- Python command (auto-detects conda/virtualenv)
   python_cmd = "python3",
-  
+
   -- Jupyter kernel name
   kernel_name = "python3",
-  
+
   -- Absolute path to bridge.py (usually auto-detected)
   bridge_script = nil,
 
@@ -174,7 +174,7 @@ require("jupyter").setup({
     -- PATH = vim.env.PATH,
     -- MPLBACKEND = "Agg",
   },
-  
+
   -- Output pane settings
   out = {
     split = "bottom",        -- "bottom" or "right"
@@ -279,7 +279,7 @@ The plugin automatically detects your Python environment:
 3. **Override**: Set `python_cmd` in configuration
 4. **Optional optimization**: `:JupyterStartOptimized` starts the Jupyter kernel with `PYTHONOPTIMIZE=2` (`sys.flags.optimize == 2`)
 
-## 🎨 Cell Markers
+## Cell Markers
 
 The plugin recognizes Jupyter-style cell markers:
 
@@ -314,7 +314,7 @@ print("This is a sub-cell")
 
 Old names (`CellLineBackground`, `CellLineBG`, `CellLineSubBackground`, `CellLineSubBG`, `CellLineFG`, `JupyterOutput`, `JupyterCellMarker`, `JupyterRunning`) remain as backwards-compatible aliases.
 
-## 🔍 Output Display
+## Output Display
 
 ### Inline Virtual Text
 
@@ -336,14 +336,14 @@ NOTE: Inline output is best for quick feedback on small results or error message
 - **Markdown**: Rendered appropriately
 - **Scrolling**: Auto-scrolls to latest output
 
-## ❓ IPython Doc Lookups and Magics
+## IPython Doc Lookups and Magics
 
 - End a symbol with `?` or `??` inside a cell (e.g. `np.linspace?`) to open IPython help in the configured pager split (see `pager` settings in the configuration). These lines are ignored by Pyright and BasedPyright diagnostics so you can keep them in your code without warnings.
 - Lines starting with `%` are treated as IPython line magics and expanded to `get_ipython().run_line_magic(...)` before execution, so commands like `%time`, `%pip install ...`, or `%who` run as expected when sent from Neovim.
 - Start a cell with `# jupyter: skip` to exclude it from `:JupyterRunCell`, `:JupyterRunCellStay`, `:JupyterRunCells`, `:JupyterRunAbove`, and `:JupyterDebugCell`.
 - Start a cell with `# jupyter: once` to run it at most once per kernel session. Subsequent cell-based runs, including debug runs, skip it; the state resets when the kernel stops or restarts.
 
-## 🏗️ Architecture
+## Architecture
 
 ### Components
 - **Bridge (`bridge.py`)**: Python process managing Jupyter kernel communication
@@ -359,7 +359,7 @@ NOTE: Inline output is best for quick feedback on small results or error message
 3. Neovim receives streaming output and updates UI in real-time
 4. Multiple executions are queued and processed sequentially
 
-## 🚨 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -403,7 +403,7 @@ To debug issues, you can:
 2. View messages: `:messages`
 3. Check bridge process: Look for `python bridge.py` in process list
 
-## 🤝 Contributing
+## Contributing
 
 Contributions welcome! Areas for improvement:
 - Support for other languages (R, Julia, Scala)
@@ -412,11 +412,11 @@ Contributions welcome! Areas for improvement:
 - Integration with notebook formats
 - Performance optimizations
 
-## 📄 License
+## License
 
 This plugin is provided as-is for personal use.
 
-## 🔗 Related Projects
+## Related Projects
 
 - [jupytext](https://github.com/mwouts/jupytext) - Convert between notebook and script formats
 - [iron.nvim](https://github.com/hkupty/iron.nvim) - Interactive REPL over Neovim
