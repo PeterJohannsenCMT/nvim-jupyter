@@ -5,7 +5,7 @@ A modern Neovim plugin that enables seamless interaction with Jupyter kernels di
 ## Features
 
 - **Live Jupyter Integration**: Connect to and control Jupyter kernels from within Neovim
-- **Cell-based Execution**: Support for `#%%` cell markers (Jupyter/VSCode style)
+- **Cell-based Execution**: Support for `#%%` cell markers
 - **Rich Output Support**: Handle text, markdown, and ANSI-colored output
 - **Visual Feedback**: Smart signs and indicators show execution status (running/success/error)
 - **Queue Management**: Execute multiple cells with proper queuing and interruption support
@@ -302,9 +302,9 @@ print("This is a sub-cell")
 
 **Highlight Groups:**
 - `JupyterCellHeader`: parent `#%%` marker/header line
-- `JupyterCellBorder`: virtual border lines around parent cells
+- `JupyterCellBorder`: virtual border lines above and below parent cells
 - `JupyterSubCellHeader`: `##%%` subcell marker/header line
-- `JupyterSubCellBorder`: virtual border lines around subcells
+- `JupyterSubCellBorder`: virtual border lines above and below subcells
 - `JupyterOutputWindow`: split output window background
 - `JupyterOutputCellMarker`: cell separators inside the output window
 - `JupyterMetadata`: virtual text for `#:: metadata ::` comments (or set `ui.metadata_hl` to another group/colors)
