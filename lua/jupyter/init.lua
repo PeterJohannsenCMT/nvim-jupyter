@@ -558,7 +558,7 @@ vim.api.nvim_create_autocmd({ "BufWinEnter", "WinEnter" }, {
 vim.api.nvim_create_autocmd("FileType", {
 	pattern = { "python", "julia" },
 	callback = function(args)
-		vim.api.nvim_create_autocmd({ "InsertEnter", "InsertLeave", "BufEnter", "BufWinEnter" }, {
+		vim.api.nvim_create_autocmd({ "InsertEnter", "InsertLeave", "BufEnter", "BufWinEnter", "TextChanged", "TextChangedI" }, {
 			buffer = args.buf,
 			callback = function()
 				local p = require("jupyter.ui")

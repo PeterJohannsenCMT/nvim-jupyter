@@ -42,6 +42,12 @@ local M = {
 			fg = "#88a0f9",
 			bg = "#10101e",
 		},
+		markdown_cells = {
+			enabled = true, -- Treat #%% [markdown] cell bodies as inline Markdown
+			conceal = true, -- Hide leading Python comment markers in markdown cell bodies
+			conceallevel = 2,
+			concealcursor = "nvic",
+		},
 	},
 	fold = {
 		close_cells_on_open = false, -- Automatically close all folds when opening a Python file with #%% markers

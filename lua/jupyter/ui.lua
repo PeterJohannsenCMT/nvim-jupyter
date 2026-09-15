@@ -2,6 +2,7 @@
 
 local api = vim.api
 local utils = require("jupyter.utils")
+local markdown = require("jupyter.markdown")
 
 local M = {}
 local GROUP = "nvim-jupyter"
@@ -976,6 +977,7 @@ function M.highlight_cells()
 		end
 	end
 	_G.CellCount = parent_total
+	markdown.render(bufnr)
 	M.refresh_inline(bufnr, cursor_line)
 end
 

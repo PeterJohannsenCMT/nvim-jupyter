@@ -2,6 +2,7 @@
 local M = {}
 
 local marker_state_cache = {}
+local markdown_ranges_cache = {}
 local once_namespace = vim.api.nvim_create_namespace("nvim-jupyter-once")
 local once_cells = {}
 
@@ -140,6 +141,7 @@ end
 function M.invalidate_marker_cache(bufnr)
 	bufnr = bufnr or vim.api.nvim_get_current_buf()
 	marker_state_cache[bufnr] = nil
+	markdown_ranges_cache[bufnr] = nil
 end
 
 function M.marker_type(line)
@@ -153,6 +155,72 @@ end
 
 function M.subcell_letter(idx)
 	return letter_for_index(idx)
+end
+
+local function is_markdown_marker_text(text)
+	if type(text) ~= "string" then
+		return false
+	end
+	local normalized = text:lower():gsub("^%s+", ""):gsub("%s+$", "")
+	return normalized:match("^%[markdown%]") ~= nil
+end
+
+function M.is_markdown_cell_marker(marker_or_text)
+	if type(marker_or_text) == "table" then
+		return is_markdown_marker_text(marker_or_text.text)
+	end
+	return is_markdown_marker_text(marker_or_text)
+end
+
+function M.get_markdown_cell_body_ranges(bufnr)
+	bufnr = bufnr or vim.api.nvim_get_current_buf()
+	if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then
+		return {}
+	end
+
+	local tick = vim.api.nvim_buf_get_changedtick(bufnr)
+	local cached = markdown_ranges_cache[bufnr]
+	if cached and cached.tick == tick then
+		return cached.ranges
+	end
+
+	local state = M.get_marker_state(bufnr)
+	local marker_rows = state.order or {}
+	local marker_map = state.markers or {}
+	local line_count = vim.api.nvim_buf_line_count(bufnr)
+	local ranges = {}
+
+	for idx, row in ipairs(marker_rows) do
+		local marker = marker_map[row]
+		if M.is_markdown_cell_marker(marker) then
+			local start_row = row + 1
+			local next_row = marker_rows[idx + 1]
+			local end_row = (next_row and (next_row - 1)) or (line_count - 1)
+			if start_row <= end_row then
+				table.insert(ranges, {
+					marker_row = row,
+					start_row = start_row,
+					end_row = end_row,
+					marker = marker,
+				})
+			end
+		end
+	end
+
+	markdown_ranges_cache[bufnr] = { tick = tick, ranges = ranges }
+	return ranges
+end
+
+function M.is_row_in_markdown_cell(bufnr, row)
+	if type(row) ~= "number" then
+		return false
+	end
+	for _, range in ipairs(M.get_markdown_cell_body_ranges(bufnr)) do
+		if row >= range.start_row and row <= range.end_row then
+			return true
+		end
+	end
+	return false
 end
 
 function M.is_skip_directive_line(line)

@@ -295,6 +295,15 @@ passing options to the setup function: >
         just_my_code = false,
         open_dapui = true,     -- setup/open dap-ui with a Jupyter layout
       },
+
+      ui = {
+        markdown_cells = {
+          enabled = true,       -- render #%% [markdown] cell bodies inline
+          conceal = true,       -- hide leading Python comment markers (# )
+          conceallevel = 2,
+          concealcursor = "nvic",
+        },
+      },
     })
 <
 
@@ -372,6 +381,9 @@ Valid cell markers: >
 Cell Behavior:
 - Cells are delimited by lines starting with `#%%` (with optional whitespace
   and comments)
+- Cells marked `#%% [markdown]` are highlighted as inline Markdown when the
+  `markdown` Tree-sitter parser is installed; leading `# ` prefixes are
+  concealed by default.
 - When the cursor is on a marker line, execution includes the cell BELOW that
   marker
 - When the cursor is inside a cell, that entire cell is executed

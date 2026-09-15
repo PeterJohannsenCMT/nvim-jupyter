@@ -223,6 +223,12 @@ require("jupyter").setup({
       fg = "#88a0f9",
       bg = "#10101e",
     },
+    markdown_cells = {
+      enabled = true,            -- render #%% [markdown] cell bodies as inline Markdown
+      conceal = true,            -- hide leading Python comment markers (`# `)
+      conceallevel = 2,
+      concealcursor = "nvic",
+    },
   },
 
   -- Fold behavior
@@ -287,6 +293,7 @@ print("This is a sub-cell")
 
 **Cell Behavior:**
 - Cells are delimited by lines starting with `#%%` (with optional whitespace)
+- Cells marked `#%% [markdown]` are highlighted as inline Markdown when the `markdown` Tree-sitter parser is installed; their leading `# ` comment prefixes are concealed by default.
 - When cursor is on a marker line, execution includes the cell **below** that marker
 - When cursor is inside a cell, that entire cell is executed
 - Put `# jupyter: skip` as the first non-empty line inside a cell to make cell-based commands skip it
